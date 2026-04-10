@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: kitefuel-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: kitefuel
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: kitefuel
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d kitefuel"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: kitefuel-backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    volumes:
+      - ./apps/backend:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+    container_name: kitefuel-frontend
+    ports:
+      - "5173:5173"
+    env_file:
+      - .env
+    volumes:
+      - ./apps/frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host
+
+  anvil:
+    image: ghcr.io/foundry-rs/foundry
+    container_name: kitefuel-anvil
+    command: anvil --host 0.0.0.0
+    ports:
+      - "8545:8545"

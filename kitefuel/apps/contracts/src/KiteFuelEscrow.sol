@@ -80,15 +80,102 @@ contract KiteFuelEscrow {
         address lender,
         uint256 creditAmount,
         uint256 repayAmount
-    ) external {}
+    ) external {
+        if (exists[taskId]) revert TaskAlreadyExists();
 
-    function fundCredit(bytes32 taskId) external payable {}
+        escrows[taskId] = TaskEscrow({
+            taskId: taskId,
+            borrower: borrower,
+            lender: lender,
+            creditAmount: creditAmount,
+            repayAmount: repayAmount,
+            spentAmount: 0,
+            revenue: 0,
+            state: EscrowState.Created
+        });
 
-    function markSpend(bytes32 taskId, uint256 amount, address provider) external {}
+        exists[taskId] = true;
 
-    function registerRevenue(bytes32 taskId) external payable {}
+        emit EscrowCreated(taskId, borrower, lender, creditAmount);
+    }
 
-    function settle(bytes32 taskId) external {}
+    function fundCredit(bytes32 taskId) external payable {
+        if (!exists[taskId]) revert TaskNotFound();
 
-    function cancelTask(bytes32 taskId) external {}
+        TaskEscrow storage escrow = escrows[taskId];
+
+        if (msg.sender != escrow.lender) revert NotLender();
+        if (escrow.state != EscrowState.Created) revert InvalidState();
+        if (msg.value != escrow.creditAmount) revert InsufficientFunds();
+
+        escrow.state = EscrowState.Funded;
+        escrow.state = EscrowState.Active;
+
+        emit CreditFunded(taskId, msg.value);
+    }
+
+    function markSpend(bytes32 taskId, uint256 amount, address provider) external {
+        if (!exists[taskId]) revert TaskNotFound();
+
+        TaskEscrow storage escrow = escrows[taskId];
+
+        if (msg.sender != authorizedSigner) revert NotAuthorized();
+        if (escrow.state != EscrowState.Active) revert InvalidState();
+        if (escrow.spentAmount + amount > escrow.creditAmount) revert OverSpendLimit();
+
+        escrow.spentAmount += amount;
+
+        emit SpendRecorded(taskId, amount, provider);
+    }
+
+    function registerRevenue(bytes32 taskId) external payable {
+        if (!exists[taskId]) revert TaskNotFound();
+
+        TaskEscrow storage escrow = escrows[taskId];
+
+        if (escrow.state != EscrowState.Active) revert InvalidState();
+
+        escrow.revenue += msg.value;
+
+        emit RevenueRegistered(taskId, msg.value);
+    }
+
+    function settle(bytes32 taskId) external {
+        if (!exists[taskId]) revert TaskNotFound();
+
+        TaskEscrow storage escrow = escrows[taskId];
+
+        if (escrow.state != EscrowState.Active) revert InvalidState();
+
+        uint256 lenderPayment = escrow.revenue >= escrow.repayAmount
+            ? escrow.repayAmount
+            : escrow.revenue;
+
+        payable(escrow.lender).transfer(lenderPayment);
+        emit LenderRepaid(taskId, lenderPayment);
+
+        if (escrow.revenue > escrow.repayAmount) {
+            uint256 remainder = escrow.revenue - escrow.repayAmount;
+            payable(escrow.borrower).transfer(remainder);
+            emit RemainderReleased(taskId, remainder);
+        }
+
+        escrow.state = EscrowState.Settled;
+    }
+
+    function cancelTask(bytes32 taskId) external {
+        if (!exists[taskId]) revert TaskNotFound();
+
+        TaskEscrow storage escrow = escrows[taskId];
+
+        if (escrow.state == EscrowState.Created) {
+            escrow.state = EscrowState.Cancelled;
+        } else if (escrow.state == EscrowState.Funded || escrow.state == EscrowState.Active) {
+            if (escrow.spentAmount != 0 || escrow.revenue != 0) revert InvalidState();
+            payable(escrow.lender).transfer(escrow.creditAmount);
+            escrow.state = EscrowState.Cancelled;
+        } else {
+            revert InvalidState();
+        }
+    }
 }

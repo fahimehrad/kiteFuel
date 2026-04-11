@@ -13,7 +13,7 @@ logger = structlog.get_logger(__name__)
 # Path to compiled Foundry artifact (relative to this file's repo root)
 # ---------------------------------------------------------------------------
 
-_REPO_ROOT = Path(__file__).resolve().parents[4]  # …/kitefuel/
+_REPO_ROOT = Path(__file__).resolve().parents[3]  # …/kitefuel/
 _ABI_PATH = _REPO_ROOT / "apps" / "contracts" / "out" / "KiteFuelEscrow.sol" / "KiteFuelEscrow.json"
 
 # ---------------------------------------------------------------------------

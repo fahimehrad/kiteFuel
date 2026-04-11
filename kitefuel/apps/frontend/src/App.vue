@@ -1,9 +1,60 @@
 <template>
-  <main class="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center gap-6">
-    <h1 class="text-4xl font-bold tracking-tight">
-      🪁 KiteCredit
-    </h1>
-    <p class="text-gray-400 text-lg">Programmable credit layer for AI agents on Kite</p>
-    <span class="px-3 py-1 text-sm rounded-full bg-green-800 text-green-200">MVP scaffold ready</span>
-  </main>
+  <div class="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
+
+    <!-- Navbar -->
+    <nav class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center gap-4">
+      <span class="text-xl font-bold text-white tracking-tight">KiteFuel</span>
+      <span class="text-xs font-medium bg-purple-700 text-purple-100 px-2 py-0.5 rounded-full">
+        Built on Kite
+      </span>
+    </nav>
+
+    <!-- Error banner -->
+    <div v-if="store.error" class="bg-red-900/60 border-b border-red-700 px-6 py-2 text-red-200 text-sm">
+      ⚠ {{ store.error }}
+    </div>
+
+    <!-- Loading indicator -->
+    <div v-if="store.loading" class="h-0.5 bg-purple-600 animate-pulse w-full" />
+
+    <!-- Main layout -->
+    <main class="flex flex-1 overflow-hidden">
+
+      <!-- Left column — Tasks placeholder -->
+      <aside class="w-[30%] border-r border-gray-800 bg-gray-900 flex flex-col">
+        <div class="px-5 py-4 border-b border-gray-800">
+          <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Tasks</h2>
+        </div>
+        <div class="flex-1 flex items-center justify-center px-4 py-6">
+          <p class="text-gray-600 text-sm text-center">
+            Task list component will be added in Task 3.2
+          </p>
+        </div>
+      </aside>
+
+      <!-- Right column — Task Detail placeholder -->
+      <section class="flex-1 flex flex-col bg-gray-950">
+        <div class="px-6 py-4 border-b border-gray-800">
+          <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Task Detail</h2>
+        </div>
+        <div class="flex-1 flex items-center justify-center px-6 py-5">
+          <p class="text-gray-600 text-sm text-center">
+            Task detail component will be added in Task 3.3
+          </p>
+        </div>
+      </section>
+
+    </main>
+  </div>
 </template>
+
+<script setup lang="ts">
+import { onMounted } from 'vue'
+import { useTaskStore } from './stores/taskStore'
+
+const store = useTaskStore()
+
+onMounted(() => {
+  store.fetchTasks()
+})
+</script>

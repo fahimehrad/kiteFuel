@@ -20,15 +20,13 @@
     <!-- Main layout -->
     <main class="flex flex-1 overflow-hidden">
 
-      <!-- Left column — Tasks placeholder -->
+      <!-- Left column — Task list -->
       <aside class="w-[30%] border-r border-gray-800 bg-gray-900 flex flex-col">
         <div class="px-5 py-4 border-b border-gray-800">
           <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Tasks</h2>
         </div>
-        <div class="flex-1 flex items-center justify-center px-4 py-6">
-          <p class="text-gray-600 text-sm text-center">
-            Task list component will be added in Task 3.2
-          </p>
+        <div class="flex-1 overflow-hidden">
+          <TaskList />
         </div>
       </aside>
 
@@ -51,6 +49,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useTaskStore } from './stores/taskStore'
+import TaskList from './components/TaskList.vue'
 
 const store = useTaskStore()
 

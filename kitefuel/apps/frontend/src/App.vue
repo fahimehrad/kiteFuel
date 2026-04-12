@@ -20,7 +20,7 @@
     <!-- Main layout -->
     <main class="flex flex-1 overflow-hidden">
 
-      <!-- Left column — Task list -->
+      <!-- Left column — Task list (30%) -->
       <aside class="w-[30%] border-r border-gray-800 bg-gray-900 flex flex-col">
         <div class="px-5 py-4 border-b border-gray-800">
           <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Tasks</h2>
@@ -30,15 +30,13 @@
         </div>
       </aside>
 
-      <!-- Right column — Task Detail placeholder -->
-      <section class="flex-1 flex flex-col bg-gray-950">
+      <!-- Right column — Task Detail (70%) -->
+      <section class="flex-1 flex flex-col bg-gray-950 overflow-hidden">
         <div class="px-6 py-4 border-b border-gray-800">
           <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Task Detail</h2>
         </div>
-        <div class="flex-1 flex items-center justify-center px-6 py-5">
-          <p class="text-gray-600 text-sm text-center">
-            Task detail component will be added in Task 3.3
-          </p>
+        <div class="flex flex-1 overflow-hidden">
+          <TaskDetail />
         </div>
       </section>
 
@@ -47,13 +45,9 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
 import { useTaskStore } from './stores/taskStore'
 import TaskList from './components/TaskList.vue'
+import TaskDetail from './components/TaskDetail.vue'
 
 const store = useTaskStore()
-
-onMounted(() => {
-  store.fetchTasks()
-})
 </script>

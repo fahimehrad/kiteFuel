@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+// Deployed on Kite Chain Testnet — https://testnet.kitescan.ai
+// Native token: KITE. All value amounts (creditAmount, repayAmount, revenue) are in wei (KITE).
+
 contract KiteFuelEscrow {
     // -------------------------------------------------------------------------
     // Enums
@@ -99,6 +102,7 @@ contract KiteFuelEscrow {
         emit EscrowCreated(taskId, borrower, lender, creditAmount);
     }
 
+    /// @notice Lender funds the escrow with exactly creditAmount KITE.
     function fundCredit(bytes32 taskId) external payable {
         if (!exists[taskId]) revert TaskNotFound();
 
@@ -128,6 +132,7 @@ contract KiteFuelEscrow {
         emit SpendRecorded(taskId, amount, provider);
     }
 
+    /// @notice User sends revenue (in KITE) into the escrow to be settled.
     function registerRevenue(bytes32 taskId) external payable {
         if (!exists[taskId]) revert TaskNotFound();
 
@@ -140,6 +145,8 @@ contract KiteFuelEscrow {
         emit RevenueRegistered(taskId, msg.value);
     }
 
+    /// @notice Settles the escrow: pays the lender first (up to repayAmount KITE),
+    ///         then releases any remaining KITE to the borrower.
     function settle(bytes32 taskId) external {
         if (!exists[taskId]) revert TaskNotFound();
 

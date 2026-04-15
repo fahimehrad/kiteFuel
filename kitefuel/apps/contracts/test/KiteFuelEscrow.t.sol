@@ -14,20 +14,21 @@ contract KiteFuelEscrowTest is Test {
 
     bytes32 public constant TASK_ID = keccak256("task-001");
 
-    uint256 public constant CREDIT_AMOUNT = 1 ether;
-    uint256 public constant REPAY_AMOUNT  = 1.1 ether;
+    // Amounts are denominated in KITE (Kite Chain native token). 1 ether == 1 KITE in wei notation.
+    uint256 public constant CREDIT_AMOUNT = 1 ether;   // 1 KITE
+    uint256 public constant REPAY_AMOUNT  = 1.1 ether; // 1.1 KITE (10 % premium)
 
     function setUp() public {
         escrow = new KiteFuelEscrow(authorizedSigner);
 
-        deal(lender,   10 ether);
-        deal(borrower, 10 ether);
-        deal(attacker, 10 ether);
+        deal(lender,   10 ether); // 10 KITE
+        deal(borrower, 10 ether); // 10 KITE
+        deal(attacker, 10 ether); // 10 KITE
     }
 
-    // Invariant: full lifecycle (fund → spend → revenue > repay → settle) distributes ETH correctly
+    // Invariant: full lifecycle (fund → spend → revenue > repay → settle) distributes KITE correctly
     function test_HappyPath() public {
-        uint256 revenue = 1.5 ether;
+        uint256 revenue = 1.5 ether; // 1.5 KITE — exceeds repayAmount, so borrower gets remainder
 
         escrow.createTaskEscrow(TASK_ID, borrower, lender, CREDIT_AMOUNT, REPAY_AMOUNT);
 
@@ -44,8 +45,8 @@ contract KiteFuelEscrowTest is Test {
 
         escrow.settle(TASK_ID);
 
-        assertEq(lender.balance,   lenderBefore   + REPAY_AMOUNT,          "lender should receive repayAmount");
-        assertEq(borrower.balance, borrowerBefore + (revenue - REPAY_AMOUNT), "borrower should receive remainder");
+        assertEq(lender.balance,   lenderBefore   + REPAY_AMOUNT,             "lender should receive repayAmount in KITE");
+        assertEq(borrower.balance, borrowerBefore + (revenue - REPAY_AMOUNT), "borrower should receive remainder in KITE");
 
         (, , , , , , , KiteFuelEscrow.EscrowState state) = escrow.escrows(TASK_ID);
         assertEq(uint256(state), uint256(KiteFuelEscrow.EscrowState.Settled), "state must be Settled");
@@ -80,7 +81,7 @@ contract KiteFuelEscrowTest is Test {
         escrow.settle(TASK_ID);
     }
 
-    // Invariant: cancel with zero spend/revenue refunds the lender in full
+    // Invariant: cancel with zero spend/revenue refunds the lender in full (KITE returned)
     function test_CancelBeforeSpend() public {
         escrow.createTaskEscrow(TASK_ID, borrower, lender, CREDIT_AMOUNT, REPAY_AMOUNT);
 
@@ -91,15 +92,15 @@ contract KiteFuelEscrowTest is Test {
 
         escrow.cancelTask(TASK_ID);
 
-        assertEq(lender.balance, lenderBefore + CREDIT_AMOUNT, "lender should be fully refunded");
+        assertEq(lender.balance, lenderBefore + CREDIT_AMOUNT, "lender should be fully refunded in KITE");
 
         (, , , , , , , KiteFuelEscrow.EscrowState state) = escrow.escrows(TASK_ID);
         assertEq(uint256(state), uint256(KiteFuelEscrow.EscrowState.Cancelled), "state must be Cancelled");
     }
 
-    // Invariant: when revenue < repayAmount the lender receives all revenue and borrower receives nothing
+    // Invariant: when revenue (KITE) < repayAmount the lender receives all available revenue and borrower receives nothing
     function test_PartialRevenue() public {
-        uint256 partialRevenue = 0.5 ether;
+        uint256 partialRevenue = 0.5 ether; // 0.5 KITE — below repayAmount of 1.1 KITE
 
         escrow.createTaskEscrow(TASK_ID, borrower, lender, CREDIT_AMOUNT, REPAY_AMOUNT);
 
@@ -116,8 +117,8 @@ contract KiteFuelEscrowTest is Test {
 
         escrow.settle(TASK_ID);
 
-        assertEq(lender.balance,   lenderBefore + partialRevenue, "lender receives all available revenue");
-        assertEq(borrower.balance, borrowerBefore,                 "borrower receives nothing when revenue < repayAmount");
+        assertEq(lender.balance,   lenderBefore + partialRevenue, "lender receives all available KITE revenue");
+        assertEq(borrower.balance, borrowerBefore,                 "borrower receives nothing when KITE revenue < repayAmount");
 
         (, , , , , , , KiteFuelEscrow.EscrowState state) = escrow.escrows(TASK_ID);
         assertEq(uint256(state), uint256(KiteFuelEscrow.EscrowState.Settled), "state must be Settled");

@@ -31,11 +31,21 @@ class ContractError(Exception):
 # ContractService
 # ---------------------------------------------------------------------------
 
+def get_rpc_url() -> str:
+    """Return the RPC endpoint to use.
+
+    Prefers KITE_RPC_URL (Kite Chain testnet) when set;
+    falls back to ANVIL_RPC_URL for local Anvil development.
+    """
+    return os.environ.get("KITE_RPC_URL") or os.environ["ANVIL_RPC_URL"]
+
+
 class ContractService:
     """Thin wrapper around the KiteFuelEscrow contract.
 
     Reads config from environment variables:
-      ANVIL_RPC_URL               – JSON-RPC endpoint
+      KITE_RPC_URL                – JSON-RPC endpoint for Kite Chain testnet (preferred)
+      ANVIL_RPC_URL               – JSON-RPC endpoint for local Anvil (fallback)
       BACKEND_SIGNER_PRIVATE_KEY  – hex-encoded private key (with or without 0x)
       CONTRACT_ADDRESS            – deployed contract address
     """
@@ -44,7 +54,7 @@ class ContractService:
     _GAS_FALLBACK = 300_000
 
     def __init__(self) -> None:
-        rpc_url = os.environ["ANVIL_RPC_URL"]
+        rpc_url = get_rpc_url()
         private_key = os.environ["BACKEND_SIGNER_PRIVATE_KEY"]
         contract_address = os.environ["CONTRACT_ADDRESS"]
 
@@ -61,6 +71,7 @@ class ContractService:
             signer=self.account.address,
             contract=self.contract_address,
             rpc=rpc_url,
+            network="kite_testnet" if os.environ.get("KITE_RPC_URL") else "anvil_local",
         )
 
     # ------------------------------------------------------------------
@@ -147,6 +158,7 @@ class ContractService:
             tx_hash=tx_hash_hex,
             contract=self.contract_address,
             status=receipt["status"],
+            token="KITE",
         )
 
         if receipt["status"] == 0:

@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from routes.attestations import router as attestations_router
 from routes.tasks import router as tasks_router
 
 app = FastAPI(
@@ -9,6 +10,7 @@ app = FastAPI(
 )
 
 app.include_router(tasks_router)
+app.include_router(attestations_router)
 
 
 @app.get("/health", tags=["health"])

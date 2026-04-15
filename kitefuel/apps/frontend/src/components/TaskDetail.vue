@@ -129,12 +129,56 @@
         </ul>
       </div>
 
+      <!-- On-Chain Attestations -->
+      <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-2">
+        <div>
+          <h4 class="text-xs font-semibold text-purple-400 uppercase tracking-wider">On-Chain Attestations</h4>
+          <p class="text-[11px] text-gray-600 mt-0.5">Every agent action is verifiable on Kite Chain</p>
+        </div>
+
+        <!-- loading -->
+        <p v-if="attestationLoading" class="text-xs text-gray-500">Loading…</p>
+
+        <!-- error -->
+        <p v-else-if="attestationError" class="text-xs text-red-400">⚠ {{ attestationError }}</p>
+
+        <!-- empty -->
+        <p v-else-if="!attestations.length" class="text-xs text-gray-600 italic">
+          Waiting for on-chain activity…
+        </p>
+
+        <!-- list -->
+        <ul v-else class="space-y-2">
+          <li
+            v-for="(att, i) in attestations"
+            :key="i"
+            class="flex items-start justify-between gap-2 text-xs"
+          >
+            <div class="flex flex-col gap-0.5 min-w-0">
+              <span class="text-gray-300 font-medium">{{ att.event }}</span>
+              <span v-if="att.amount_kite" class="text-gray-500">{{ att.amount_kite }} KITE</span>
+              <span v-if="att.timestamp" class="text-gray-600 text-[10px]">
+                {{ new Date(att.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) }}
+              </span>
+            </div>
+            <a
+              :href="att.explorer_url"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="flex-shrink-0 text-[11px] text-blue-400 hover:text-blue-300 underline underline-offset-2 whitespace-nowrap"
+            >
+              View on KiteScan ↗
+            </a>
+          </li>
+        </ul>
+      </div>
+
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useTaskStore } from '../stores/taskStore'
 import type { TaskDetail, StateTransitionRecord } from '../composables/useApi'
 import DemoPanel from './DemoPanel.vue'
@@ -142,6 +186,59 @@ import DemoPanel from './DemoPanel.vue'
 const store = useTaskStore()
 
 const isDemoRunning = ref(false)
+
+// ---------------------------------------------------------------------------
+// Attestations
+// ---------------------------------------------------------------------------
+
+interface AttestationItem {
+  event: string
+  tx_hash: string
+  block_number: number | null
+  timestamp: string | null
+  amount_kite: string | null
+  explorer_url: string
+}
+
+const attestations      = ref<AttestationItem[]>([])
+const attestationError  = ref<string | null>(null)
+const attestationLoading = ref(false)
+
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:8000'
+
+async function fetchAttestations(taskId: string) {
+  attestationLoading.value = true
+  attestationError.value   = null
+  try {
+    const res = await fetch(`${BASE_URL}/tasks/${taskId}/attestations`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    attestations.value = await res.json()
+  } catch (err: unknown) {
+    attestationError.value = err instanceof Error ? err.message : 'Failed to load attestations'
+    attestations.value = []
+  } finally {
+    attestationLoading.value = false
+  }
+}
+
+// Re-fetch when the selected task ID changes (different task selected)
+watch(
+  () => store.selectedTaskId,
+  (id) => {
+    if (id) fetchAttestations(id)
+    else attestations.value = []
+  },
+  { immediate: true },
+)
+
+// Re-fetch when the same task's data changes (new state transitions after actions)
+watch(
+  () => store.selectedTask,
+  (detail) => {
+    const id = detail?.task?.id
+    if (id) fetchAttestations(id)
+  },
+)
 
 // ---------------------------------------------------------------------------
 // Typed convenience refs

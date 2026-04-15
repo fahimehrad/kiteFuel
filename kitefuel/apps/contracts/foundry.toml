@@ -3,4 +3,13 @@ src = "src"
 out = "out"
 libs = ["lib"]
 
+# ── RPC endpoints ─────────────────────────────────────────────────────────────
+# Used by forge script --rpc-url <alias> or cast --rpc-url <alias>.
+# Secrets are read from environment variables; never hardcode keys here.
+[rpc_endpoints]
+# Local Anvil devnet (default for forge test)
+anvil      = "http://localhost:8545"
+# Kite Chain testnet – set KITE_RPC_URL in your .env before deploying
+kite_testnet = "${KITE_RPC_URL}"
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

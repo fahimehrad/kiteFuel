@@ -15,7 +15,7 @@
         <span class="text-sm text-gray-400">Next:</span>
         <button
           @click="handleAction"
-          :disabled="store.loading"
+          :disabled="store.loading || isDemoRunning"
           class="text-sm bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white px-5 py-2 rounded-md font-medium transition"
         >
           {{ nextAction }}
@@ -65,6 +65,9 @@
     <!-- RIGHT: Agent identity + explainers (35%) -->
     <div class="flex flex-col w-[35%] overflow-y-auto px-5 py-5 space-y-4">
 
+      <!-- Demo Runner -->
+      <DemoPanel @running-change="isDemoRunning = $event" />
+
       <!-- Agent Identity card -->
       <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-2">
         <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Agent Identity (Delegated Authority)</h3>
@@ -79,7 +82,7 @@
           </div>
           <div>
             <span class="text-gray-500">Provider scope: </span>
-            <span>MockDataProvider</span>
+            <span>x402 Market Data Service</span>
           </div>
           <div>
             <span class="text-gray-500">Session: </span>
@@ -131,11 +134,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useTaskStore } from '../stores/taskStore'
 import type { TaskDetail, StateTransitionRecord } from '../composables/useApi'
+import DemoPanel from './DemoPanel.vue'
 
 const store = useTaskStore()
+
+const isDemoRunning = ref(false)
 
 // ---------------------------------------------------------------------------
 // Typed convenience refs
@@ -174,7 +180,7 @@ function handleAction() {
 const agentMaxSpend = computed<string>(() => {
   const offer = detail.value?.credit_offers?.[0]
   if (!offer) return '—'
-  return `${offer.credit_amount} ETH`
+  return `${offer.credit_amount} KITE`
 })
 
 // ---------------------------------------------------------------------------
@@ -231,7 +237,7 @@ function detailFor(state: string, d: TaskDetail): string | null {
     case 'data_purchased': {
       const purchase = d.data_purchases?.[0]
       if (!purchase) return null
-      return `${purchase.provider} · ${purchase.amount} ETH`
+      return `${purchase.provider} · ${purchase.amount} KITE`
     }
     case 'user_paid': {
       const t = d.state_transitions?.find(tr => tr.to_state === 'user_paid')
@@ -240,7 +246,7 @@ function detailFor(state: string, d: TaskDetail): string | null {
     case 'lender_repaid': {
       const rep = d.repayment_records?.[0]
       if (!rep) return null
-      return `Lender received ${rep.lender_paid} ETH · remainder ${rep.remainder_released} ETH`
+      return `Lender received ${rep.lender_paid} KITE · remainder ${rep.remainder_released} KITE`
     }
     default:
       return null

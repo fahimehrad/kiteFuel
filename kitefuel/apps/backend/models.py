@@ -57,6 +57,7 @@ class DataPurchase(Base):
     provider = Column(String, nullable=False)
     amount = Column(Float, nullable=False)
     result_summary = Column(Text, nullable=True)
+    payment_token = Column(Text, nullable=True)
     purchased_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
     task = relationship("Task", back_populates="data_purchases")

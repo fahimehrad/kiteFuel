@@ -25,9 +25,10 @@ from models import (
     RepaymentRecord,
     StateTransition,
 )
+from schemas import ConfirmPurchaseRequest
 from services.state_machine import transition, next_action, InvalidTransition
 from services.contract_service import ContractService, ContractError
-from services.mock_provider import MockDataProvider
+from services.x402_client import X402Client, X402Error, X402PaymentRejected, ConfigurationError
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -43,9 +44,6 @@ _DEMO_PROVIDER  = os.getenv("DEMO_PROVIDER_ADDRESS",  "0x90F79bf6EB2c4f870365E78
 _CREDIT_WEI = int(0.01  * 10**18)
 _REPAY_WEI  = int(0.011 * 10**18)
 _REVENUE_WEI = int(0.012 * 10**18)   # demo revenue > repay so lender is whole
-
-_PROVIDER = MockDataProvider()
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -282,11 +280,25 @@ def fund(task_id: str, db: Session = Depends(get_db)):
     return _task_response(task, f"Escrow funded (tx={tx_hash})")
 
 
-@router.post("/{task_id}/buy-data", summary="Purchase data from the mock provider")
+# ---------------------------------------------------------------------------
+# x402 demo constants
+# ---------------------------------------------------------------------------
+
+_X402_SYMBOL = "BTC"                # symbol used for all demo x402 market-data purchases
+_X402_AMOUNT = 5.0                  # display amount in payment token units (Test USDT, 18 dec)
+
+
+@router.post("/{task_id}/buy-data", summary="Initiate x402 data purchase — returns payment requirements")
 async def buy_data(task_id: str, db: Session = Depends(get_db)):
     """
-    Purchase market data from the mock provider and record the spend on-chain.
-    Both external calls must succeed before DB state advances.
+    Step 1 of the two-step x402 buy-data flow.
+
+    Calls the x402 provider to retrieve payment requirements (HTTP 402).
+    Does NOT advance task state — the client must complete the purchase via
+    POST /tasks/{id}/buy-data/confirm with a real X-PAYMENT token.
+
+    Returns:
+        {payment_required: true, requirements: {...}, message: "..."}
     """
     task = _get_task_or_404(task_id, db)
     if task.state != "funds_locked":
@@ -295,48 +307,125 @@ async def buy_data(task_id: str, db: Session = Depends(get_db)):
             detail={"error": "Task must be in 'funds_locked' state to buy data", "current_state": task.state},
         )
 
-    # 1a. Call mock data provider
+    # Ask the x402 provider what it needs — backend does NOT sign or generate a token
     try:
-        result = await _PROVIDER.purchase_data(task_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Data provider error: {exc}")
-
-    spend_wei = int(result.cost_eth * 10**18)
-
-    # 1b. Record spend on-chain
-    try:
-        svc = ContractService()
-        tx_hash = svc.mark_spend(
-            task_id=_task_id_to_bytes32(task_id),
-            amount_wei=spend_wei,
-            provider_address=_DEMO_PROVIDER,
+        client = X402Client()
+        requirements = await client.request_payment_requirements(_X402_SYMBOL)
+    except ConfigurationError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "x402 provider not configured", "detail": str(exc)},
         )
-    except ContractError as exc:
-        raise HTTPException(status_code=500, detail=f"Contract call failed: {exc}")
+    except X402Error as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": "x402 provider returned unexpected response", "detail": str(exc)},
+        )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Unexpected error during mark_spend: {exc}")
+        raise HTTPException(
+            status_code=502,
+            detail={"error": "Failed to reach x402 provider", "detail": str(exc)},
+        )
 
-    # 2. Validate transition, then persist DB state
+    return {
+        "payment_required": True,
+        "requirements": requirements,
+        "message": "Provide X-PAYMENT token to complete purchase",
+    }
+
+
+@router.post("/{task_id}/buy-data/confirm", summary="Complete x402 data purchase with payment token")
+async def buy_data_confirm(
+    task_id: str,
+    body: ConfirmPurchaseRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Step 2 of the two-step x402 buy-data flow.
+
+    Accepts a real X-PAYMENT token obtained by the frontend / agent via
+    Kite Passport / MCP. Forwards it to the x402 provider; on success,
+    advances task state to 'data_purchased' and persists a DataPurchase record.
+
+    The backend NEVER generates or signs this token.
+
+    Request body:
+        { "payment_token": "<base64 X-PAYMENT string>" }
+    """
+    task = _get_task_or_404(task_id, db)
+    if task.state != "funds_locked":
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "Task must be in 'funds_locked' state to confirm purchase", "current_state": task.state},
+        )
+
+    if not body.payment_token or not body.payment_token.strip():
+        raise HTTPException(status_code=400, detail="payment_token is required and must not be empty")
+
+    # Forward token to x402 provider — backend does NOT modify or sign the token
+    try:
+        client = X402Client()
+        market_data = await client.complete_purchase(_X402_SYMBOL, body.payment_token.strip())
+    except ConfigurationError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "x402 provider not configured", "detail": str(exc)},
+        )
+    except X402PaymentRejected as exc:
+        # Facilitator rejected the token — do NOT change task state
+        raise HTTPException(
+            status_code=402,
+            detail={"error": "Payment rejected by x402 facilitator", "detail": str(exc)},
+        )
+    except X402Error as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": "x402 provider returned unexpected response", "detail": str(exc)},
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": "Failed to reach x402 provider", "detail": str(exc)},
+        )
+
+    # External call succeeded — now advance task state and persist
     _safe_transition(task, "data_purchased")
     prev_state = task.state
+
+    result_summary = (
+        f"[x402] {market_data.get('symbol', _X402_SYMBOL)} "
+        f"@ ${market_data.get('price_usd', 0):.2f} "
+        f"({market_data.get('trend', 'unknown')}): "
+        f"{market_data.get('summary', '')}"
+    )
+
     purchase = DataPurchase(
         task_id=task_id,
-        provider="MockDataProvider",
-        amount=result.cost_eth,
-        result_summary=result.summary,
+        provider="KiteFuel Market Data (x402)",
+        amount=_X402_AMOUNT,
+        result_summary=result_summary,
+        payment_token=body.payment_token.strip(),
         purchased_at=_utcnow(),
     )
     db.add(purchase)
     task.state = "data_purchased"
     task.updated_at = _utcnow()
-    _add_state_transition(db, task_id, prev_state, "data_purchased", note=f"symbol={result.symbol} tx={tx_hash}")
+    _add_state_transition(
+        db, task_id, prev_state, "data_purchased",
+        note=f"x402 symbol={_X402_SYMBOL} network={market_data.get('settlement_network', 'kite-testnet')}",
+    )
     try:
         db.commit()
         db.refresh(task)
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"DB error: {exc}")
-    return _task_response(task, f"Data purchased: {result.symbol} @ ${result.price_usd} ({result.trend})")
+
+    return _task_response(
+        task,
+        f"Data purchased via x402: {market_data.get('symbol', _X402_SYMBOL)} "
+        f"@ ${market_data.get('price_usd', 0):.2f} ({market_data.get('trend', 'unknown')})",
+    )
 
 
 @router.post("/{task_id}/generate-report", summary="Generate the result report")

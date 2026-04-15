@@ -43,6 +43,7 @@ class DataPurchase(BaseModel):
     provider: str
     amount: float
     result_summary: str
+    payment_token: Optional[str] = None
 
 
 class RepaymentRecord(BaseModel):
@@ -50,3 +51,8 @@ class RepaymentRecord(BaseModel):
     lender_paid: float
     remainder_released: float
     settled_at: str
+
+
+class ConfirmPurchaseRequest(BaseModel):
+    """Request body for POST /tasks/{id}/buy-data/confirm."""
+    payment_token: str

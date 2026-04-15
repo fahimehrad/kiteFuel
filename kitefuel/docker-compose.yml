@@ -50,3 +50,15 @@ services:
     command: anvil --host 0.0.0.0
     ports:
       - "8545:8545"
+
+  x402-provider:
+    build:
+      context: ./apps/x402-provider
+      dockerfile: Dockerfile
+    container_name: kitefuel-x402-provider
+    ports:
+      - "9000:9000"
+    environment:
+      PROVIDER_WALLET_ADDRESS: ${PROVIDER_WALLET_ADDRESS}
+      SERVICE_URL: ${SERVICE_URL:-http://localhost:9000}
+      FACILITATOR_BASE_URL: ${FACILITATOR_BASE_URL:-https://facilitator.pieverse.io}

@@ -105,14 +105,14 @@ open http://localhost:8000/docs
 
 ## Tech stack
 
-| Layer | Technology |
-|---|---|
-| Smart contracts | Solidity 0.8, Foundry |
-| Backend | Python 3.12, FastAPI, SQLAlchemy, Alembic, web3.py, structlog |
-| x402 provider | Python 3.12, FastAPI |
-| Frontend | Vue 3, Vite, Pinia, Tailwind CSS |
-| Chain | Kite Chain testnet (chainId 2368, EVM-compatible) |
-| Infra | Railway (backend + x402-provider), Vercel (frontend) |
+| Layer           | Technology                                                    |
+|-----------------|---------------------------------------------------------------|
+| Smart contracts | Solidity 0.8, Foundry                                         |
+| Backend         | Python 3.12, FastAPI, SQLAlchemy, Alembic, web3.py, structlog |
+| x402 provider   | Python 3.12, FastAPI                                          |
+| Frontend        | Vue 3, Vite, Pinia, Tailwind CSS                              |
+| Chain           | Kite Chain testnet (chainId 2368, EVM-compatible)             |
+| Infra           | Railway (backend + x402-provider), Vercel (frontend)          |
 
 ---
 

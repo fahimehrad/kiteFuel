@@ -57,9 +57,9 @@ Dockerfile       # Container image definition
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | SQLAlchemy connection string |
-| `ANVIL_RPC_URL` | Ethereum RPC endpoint (Anvil or testnet) |
+| Variable                     | Description                                 |
+|------------------------------|---------------------------------------------|
+| `DATABASE_URL`               | SQLAlchemy connection string                |
+| `ANVIL_RPC_URL`              | Ethereum RPC endpoint (Anvil or testnet)    |
 | `BACKEND_SIGNER_PRIVATE_KEY` | Wallet private key for signing transactions |
-| `CONTRACT_ADDRESS` | Deployed KiteFuel contract address |
+| `CONTRACT_ADDRESS`           | Deployed KiteFuel contract address          |

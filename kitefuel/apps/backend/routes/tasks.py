@@ -13,6 +13,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -32,6 +33,8 @@ from services.x402_client import X402Client, X402Error, X402PaymentRejected, Con
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
+logger = structlog.get_logger(__name__)
+
 # ---------------------------------------------------------------------------
 # Demo constants
 # ---------------------------------------------------------------------------
@@ -44,6 +47,32 @@ _DEMO_PROVIDER  = os.getenv("DEMO_PROVIDER_ADDRESS",  "0x90F79bf6EB2c4f870365E78
 _CREDIT_WEI = int(0.01  * 10**18)
 _REPAY_WEI  = int(0.011 * 10**18)
 _REVENUE_WEI = int(0.012 * 10**18)   # demo revenue > repay so lender is whole
+
+_KITE_EXPLORER_BASE = "https://testnet.kitescan.ai/tx"
+
+# ---------------------------------------------------------------------------
+# Logging helpers
+# ---------------------------------------------------------------------------
+
+def _iso_now() -> str:
+    """Return the current UTC time as an ISO-8601 string."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _kite_tx_url(tx_hash: str) -> str:
+    """Return a KiteScan explorer URL for the given transaction hash."""
+    return f"{_KITE_EXPLORER_BASE}/{tx_hash}"
+
+
+def _log_event(event: str, **kwargs) -> None:
+    """Emit one structured JSON log entry at INFO level."""
+    logger.info(event, timestamp=_iso_now(), **kwargs)
+
+
+def _log_warning(event: str, **kwargs) -> None:
+    """Emit one structured JSON log entry at WARNING level."""
+    logger.warning(event, timestamp=_iso_now(), **kwargs)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -169,7 +198,10 @@ def create_task(db: Session = Depends(get_db)):
         db.refresh(task)
     except Exception as exc:
         db.rollback()
+        _log_warning("task_create_db_error", task_id=task_id, error=str(exc))
         raise HTTPException(status_code=500, detail=f"DB error: {exc}")
+
+    _log_event("task_created", task_id=task_id, state="task_created")
     return _task_response(task, "Task created")
 
 
@@ -195,7 +227,10 @@ def request_credit(task_id: str, db: Session = Depends(get_db)):
         db.refresh(task)
     except Exception as exc:
         db.rollback()
+        _log_warning("request_credit_db_error", task_id=task_id, error=str(exc))
         raise HTTPException(status_code=500, detail=f"DB error: {exc}")
+
+    _log_event("credit_requested", task_id=task_id, state="credit_requested")
     return _task_response(task, "Credit requested")
 
 
@@ -214,7 +249,10 @@ def approve_credit(task_id: str, db: Session = Depends(get_db)):
         db.refresh(task)
     except Exception as exc:
         db.rollback()
+        _log_warning("approve_credit_db_error", task_id=task_id, error=str(exc))
         raise HTTPException(status_code=500, detail=f"DB error: {exc}")
+
+    _log_event("credit_approved", task_id=task_id, state="credit_approved")
     return _task_response(task, "Credit approved")
 
 
@@ -254,8 +292,10 @@ def fund(task_id: str, db: Session = Depends(get_db)):
             value_wei=_CREDIT_WEI,
         )
     except ContractError as exc:
+        _log_warning("fund_contract_error", task_id=task_id, error=str(exc))
         raise HTTPException(status_code=500, detail=f"Contract call failed: {exc}")
     except Exception as exc:
+        _log_warning("fund_unexpected_error", task_id=task_id, error=str(exc))
         raise HTTPException(status_code=500, detail=f"Unexpected error during fund: {exc}")
 
     # 2. Validate transition, then persist DB state
@@ -276,7 +316,18 @@ def fund(task_id: str, db: Session = Depends(get_db)):
         db.refresh(task)
     except Exception as exc:
         db.rollback()
+        _log_warning("fund_db_error", task_id=task_id, tx_hash=tx_hash, error=str(exc))
         raise HTTPException(status_code=500, detail=f"DB error: {exc}")
+
+    amount_kite = f"{_CREDIT_WEI / 10**18:.6f}".rstrip("0").rstrip(".")
+    _log_event(
+        "escrow_funded",
+        task_id=task_id,
+        state="funds_locked",
+        tx_hash=tx_hash,
+        amount_kite=amount_kite,
+        kite_explorer_url=_kite_tx_url(tx_hash),
+    )
     return _task_response(task, f"Escrow funded (tx={tx_hash})")
 
 
@@ -312,20 +363,45 @@ async def buy_data(task_id: str, db: Session = Depends(get_db)):
         client = X402Client()
         requirements = await client.request_payment_requirements(_X402_SYMBOL)
     except ConfigurationError as exc:
+        _log_warning(
+            "x402_configuration_error",
+            task_id=task_id,
+            error=str(exc),
+        )
         raise HTTPException(
             status_code=500,
             detail={"error": "x402 provider not configured", "detail": str(exc)},
         )
     except X402Error as exc:
+        _log_warning(
+            "x402_provider_error",
+            task_id=task_id,
+            error=str(exc),
+        )
         raise HTTPException(
             status_code=502,
             detail={"error": "x402 provider returned unexpected response", "detail": str(exc)},
         )
     except Exception as exc:
+        _log_warning(
+            "x402_reach_error",
+            task_id=task_id,
+            error=str(exc),
+        )
         raise HTTPException(
             status_code=502,
             detail={"error": "Failed to reach x402 provider", "detail": str(exc)},
         )
+
+    provider_url = requirements.get("provider_url", "") if isinstance(requirements, dict) else ""
+    amount_required = requirements.get("amount", str(_X402_AMOUNT)) if isinstance(requirements, dict) else str(_X402_AMOUNT)
+
+    _log_event(
+        "x402_payment_requirements_sent",
+        task_id=task_id,
+        provider_url=provider_url,
+        amount_required=str(amount_required),
+    )
 
     return {
         "payment_required": True,
@@ -367,22 +443,26 @@ async def buy_data_confirm(
         client = X402Client()
         market_data = await client.complete_purchase(_X402_SYMBOL, body.payment_token.strip())
     except ConfigurationError as exc:
+        _log_warning("x402_confirm_configuration_error", task_id=task_id, error=str(exc))
         raise HTTPException(
             status_code=500,
             detail={"error": "x402 provider not configured", "detail": str(exc)},
         )
     except X402PaymentRejected as exc:
         # Facilitator rejected the token — do NOT change task state
+        _log_warning("x402_payment_rejected", task_id=task_id, error=str(exc))
         raise HTTPException(
             status_code=402,
             detail={"error": "Payment rejected by x402 facilitator", "detail": str(exc)},
         )
     except X402Error as exc:
+        _log_warning("x402_confirm_provider_error", task_id=task_id, error=str(exc))
         raise HTTPException(
             status_code=502,
             detail={"error": "x402 provider returned unexpected response", "detail": str(exc)},
         )
     except Exception as exc:
+        _log_warning("x402_confirm_reach_error", task_id=task_id, error=str(exc))
         raise HTTPException(
             status_code=502,
             detail={"error": "Failed to reach x402 provider", "detail": str(exc)},
@@ -419,7 +499,19 @@ async def buy_data_confirm(
         db.refresh(task)
     except Exception as exc:
         db.rollback()
+        _log_warning("x402_confirm_db_error", task_id=task_id, error=str(exc))
         raise HTTPException(status_code=500, detail=f"DB error: {exc}")
+
+    token = body.payment_token.strip()
+    payment_token_prefix = token[:20] if len(token) >= 20 else token
+
+    _log_event(
+        "x402_purchase_confirmed",
+        task_id=task_id,
+        state="data_purchased",
+        symbol=market_data.get("symbol", _X402_SYMBOL),
+        payment_token_prefix=f"{payment_token_prefix}...(first 20 chars)",
+    )
 
     return _task_response(
         task,
@@ -458,7 +550,10 @@ def generate_report(task_id: str, db: Session = Depends(get_db)):
         db.refresh(task)
     except Exception as exc:
         db.rollback()
+        _log_warning("generate_report_db_error", task_id=task_id, error=str(exc))
         raise HTTPException(status_code=500, detail=f"DB error: {exc}")
+
+    _log_event("report_generated", task_id=task_id, state="result_generated")
     return _task_response(task, "Report generated")
 
 
@@ -483,8 +578,10 @@ def user_pay(task_id: str, db: Session = Depends(get_db)):
             value_wei=_REVENUE_WEI,
         )
     except ContractError as exc:
+        _log_warning("user_pay_contract_error", task_id=task_id, error=str(exc))
         raise HTTPException(status_code=500, detail=f"Contract call failed: {exc}")
     except Exception as exc:
+        _log_warning("user_pay_unexpected_error", task_id=task_id, error=str(exc))
         raise HTTPException(status_code=500, detail=f"Unexpected error during register_revenue: {exc}")
 
     # 2. Validate transition, then persist DB state
@@ -498,7 +595,18 @@ def user_pay(task_id: str, db: Session = Depends(get_db)):
         db.refresh(task)
     except Exception as exc:
         db.rollback()
+        _log_warning("user_pay_db_error", task_id=task_id, tx_hash=tx_hash, error=str(exc))
         raise HTTPException(status_code=500, detail=f"DB error: {exc}")
+
+    amount_kite = f"{_REVENUE_WEI / 10**18:.6f}".rstrip("0").rstrip(".")
+    _log_event(
+        "revenue_registered",
+        task_id=task_id,
+        state="user_paid",
+        tx_hash=tx_hash,
+        amount_kite=amount_kite,
+        kite_explorer_url=_kite_tx_url(tx_hash),
+    )
     return _task_response(task, f"Revenue registered (tx={tx_hash})")
 
 
@@ -520,8 +628,10 @@ def settle(task_id: str, db: Session = Depends(get_db)):
         svc = ContractService()
         tx_hash = svc.settle(task_id=_task_id_to_bytes32(task_id))
     except ContractError as exc:
+        _log_warning("settle_contract_error", task_id=task_id, error=str(exc))
         raise HTTPException(status_code=500, detail=f"Contract call failed: {exc}")
     except Exception as exc:
+        _log_warning("settle_unexpected_error", task_id=task_id, error=str(exc))
         raise HTTPException(status_code=500, detail=f"Unexpected error during settle: {exc}")
 
     # 2. Validate both state hops, then persist DB state
@@ -554,7 +664,16 @@ def settle(task_id: str, db: Session = Depends(get_db)):
         db.refresh(task)
     except Exception as exc:
         db.rollback()
+        _log_warning("settle_db_error", task_id=task_id, tx_hash=tx_hash, error=str(exc))
         raise HTTPException(status_code=500, detail=f"DB error: {exc}")
+
+    _log_event(
+        "task_settled",
+        task_id=task_id,
+        state="task_closed",
+        tx_hash=tx_hash,
+        kite_explorer_url=_kite_tx_url(tx_hash),
+    )
     return _task_response(task, f"Task settled and closed (tx={tx_hash})")
 
 

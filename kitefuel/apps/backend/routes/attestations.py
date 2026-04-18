@@ -43,6 +43,25 @@ _AMOUNT_EVENTS = {
 }
 
 # ---------------------------------------------------------------------------
+# Logging helpers
+# ---------------------------------------------------------------------------
+
+def _iso_now() -> str:
+    """Return the current UTC time as an ISO-8601 string."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _log_event(event: str, **kwargs) -> None:
+    """Emit one structured JSON log entry at INFO level."""
+    logger.info(event, timestamp=_iso_now(), **kwargs)
+
+
+def _log_warning(event: str, **kwargs) -> None:
+    """Emit one structured JSON log entry at WARNING level."""
+    logger.warning(event, timestamp=_iso_now(), **kwargs)
+
+
+# ---------------------------------------------------------------------------
 # ABI loading (reuses the Foundry artifact)
 # ---------------------------------------------------------------------------
 
@@ -124,6 +143,7 @@ def get_attestations(task_id: str, db: Session = Depends(get_db)) -> list[Attest
                     tx_hashes.append(match)
 
     if not tx_hashes:
+        _log_event("attestations_fetched", task_id=task_id, count=0)
         return []
 
     # Lazily connect to the chain
@@ -137,9 +157,9 @@ def get_attestations(task_id: str, db: Session = Depends(get_db)) -> list[Attest
             else None
         )
     except Exception as exc:
-        logger.warning("attestations_init_failed", error=str(exc))
+        _log_warning("attestations_init_failed", task_id=task_id, error=str(exc))
         # Return minimal attestation stubs so the frontend doesn't crash
-        return [
+        stubs = [
             AttestationItem(
                 event="unknown",
                 tx_hash=h,
@@ -150,6 +170,8 @@ def get_attestations(task_id: str, db: Session = Depends(get_db)) -> list[Attest
             )
             for h in tx_hashes
         ]
+        _log_event("attestations_fetched", task_id=task_id, count=len(stubs))
+        return stubs
 
     results: list[AttestationItem] = []
 
@@ -157,7 +179,12 @@ def get_attestations(task_id: str, db: Session = Depends(get_db)) -> list[Attest
         try:
             receipt = w3.eth.get_transaction_receipt(tx_hash)
         except Exception as exc:
-            logger.warning("receipt_fetch_failed", tx_hash=tx_hash, error=str(exc))
+            _log_warning(
+                "attestation_receipt_fetch_failed",
+                task_id=task_id,
+                tx_hash=tx_hash,
+                error=str(exc),
+            )
             results.append(
                 AttestationItem(
                     event="unknown",
@@ -172,6 +199,12 @@ def get_attestations(task_id: str, db: Session = Depends(get_db)) -> list[Attest
 
         if receipt is None:
             # Pending / not found
+            _log_warning(
+                "attestation_receipt_fetch_failed",
+                task_id=task_id,
+                tx_hash=tx_hash,
+                error="receipt not found (pending or unknown tx)",
+            )
             results.append(
                 AttestationItem(
                     event="unknown",
@@ -228,6 +261,7 @@ def get_attestations(task_id: str, db: Session = Depends(get_db)) -> list[Attest
                 )
             )
 
+    _log_event("attestations_fetched", task_id=task_id, count=len(results))
     return results
 
 

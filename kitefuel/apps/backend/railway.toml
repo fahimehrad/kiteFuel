@@ -1,0 +1,26 @@
+# ── KiteFuel backend — Railway service config ──────────────────────────────────
+# Railway dashboard: set Root Directory = apps/backend for this service.
+# Railway will find and apply this file automatically from that root.
+
+[build]
+builder        = "DOCKERFILE"
+# Relative to service root directory (apps/backend/)
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Migrations must succeed before the server starts.
+startCommand            = "sh -c 'alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2'"
+healthcheckPath         = "/health"
+healthcheckTimeout      = 30
+restartPolicyType       = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Required env vars — set in Railway → backend service → Variables
+#
+#   DATABASE_URL                ← auto-injected by Railway Postgres plugin
+#   KITE_RPC_URL                = https://rpc-testnet.gokite.ai/
+#   CONTRACT_ADDRESS            = 0x<deployed KiteFuelEscrow address>
+#   BACKEND_SIGNER_PRIVATE_KEY  = <authorised signer wallet private key>
+#   X402_PROVIDER_URL           = https://<Railway URL of x402-provider service>
+# ──────────────────────────────────────────────────────────────────────────────

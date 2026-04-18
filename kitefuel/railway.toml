@@ -1,0 +1,78 @@
+# ── KiteFuel — Railway deployment configuration ────────────────────────────────
+#
+# HOW RAILWAY READS THIS FILE
+# Railway resolves railway.toml relative to the *service root directory* you
+# set in the Railway dashboard (Settings → Source → Root Directory).
+#
+# This repo has TWO Railway services:
+#
+#   Service 1  "backend"
+#     Root Directory  →  apps/backend        (set in Railway dashboard)
+#     Railway reads  →  apps/backend/railway.toml  ← this file lives there
+#
+#   Service 2  "x402-provider"
+#     Root Directory  →  apps/x402-provider  (set in Railway dashboard)
+#     Railway reads  →  apps/x402-provider/railway.toml
+#
+# ── STEP 1: copy this file to apps/backend/railway.toml (already done if you ──
+#            are reading it there) and deploy the backend service.
+#
+# ── STEP 2: copy the x402-provider block at the bottom to ─────────────────────
+#            apps/x402-provider/railway.toml and deploy the second service.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SERVICE 1 — backend
+#  Railway dashboard: Root Directory = apps/backend
+# ══════════════════════════════════════════════════════════════════════════════
+
+[build]
+builder        = "DOCKERFILE"
+# Path is relative to the service root directory (apps/backend/)
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Run DB migrations first; only start the server if alembic succeeds.
+startCommand            = "sh -c 'alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2'"
+healthcheckPath         = "/health"
+healthcheckTimeout      = 30
+restartPolicyType       = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Required env vars for the backend service
+# (Railway dashboard → backend service → Variables)
+#
+#   DATABASE_URL                ← injected automatically by Railway Postgres plugin
+#   KITE_RPC_URL                = https://rpc-testnet.gokite.ai/
+#   CONTRACT_ADDRESS            = 0x<deployed KiteFuelEscrow address>
+#   BACKEND_SIGNER_PRIVATE_KEY  = <private key of the authorised signer wallet>
+#   X402_PROVIDER_URL           = https://<Railway public URL of x402-provider service>
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SERVICE 2 — x402-provider
+#  Copy everything below this line into apps/x402-provider/railway.toml
+#  Railway dashboard: Root Directory = apps/x402-provider
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# [build]
+# builder        = "DOCKERFILE"
+# dockerfilePath = "Dockerfile"
+#
+# [deploy]
+# startCommand            = "uvicorn server:app --host 0.0.0.0 --port 9000 --workers 2"
+# healthcheckPath         = "/health"
+# healthcheckTimeout      = 20
+# restartPolicyType       = "ON_FAILURE"
+# restartPolicyMaxRetries = 3
+#
+# Required env vars for the x402-provider service
+# (Railway dashboard → x402-provider service → Variables)
+#
+#   PROVIDER_WALLET_ADDRESS  = <wallet address that receives x402 payments>
+#   SERVICE_URL              = https://<Railway public URL of this service>
+#   FACILITATOR_BASE_URL     = https://<Kite Passport / facilitator endpoint>
+# ══════════════════════════════════════════════════════════════════════════════

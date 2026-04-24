@@ -65,20 +65,20 @@ def _log_warning(event: str, **kwargs) -> None:
 # ABI loading (reuses the Foundry artifact)
 # ---------------------------------------------------------------------------
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_ABI_PATH = (
-    _REPO_ROOT / "apps" / "contracts" / "out"
-    / "KiteFuelEscrow.sol" / "KiteFuelEscrow.json"
-)
+backend_root = Path(__file__).resolve().parents[1]
+_ABI_PATH = Path(os.environ.get("CONTRACT_ABI_PATH") or str(backend_root / "artifacts" / "KiteFuelEscrow.json"))
 
 
 def _load_abi() -> list[dict]:
     if not _ABI_PATH.exists():
-        raise FileNotFoundError(
-            f"Contract ABI not found at {_ABI_PATH}. Run `forge build` first."
-        )
-    with _ABI_PATH.open() as fh:
-        return json.load(fh)["abi"]
+        _log_warning("attestations_abi_missing", path=str(_ABI_PATH))
+        return []
+    try:
+        with _ABI_PATH.open() as fh:
+            return json.load(fh)["abi"]
+    except Exception as exc:
+        _log_warning("attestations_abi_load_failed", path=str(_ABI_PATH), error=str(exc))
+        return []
 
 
 # ---------------------------------------------------------------------------

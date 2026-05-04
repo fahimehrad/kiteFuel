@@ -136,3 +136,13 @@ The script exits `0` on success and `1` on any failure, printing exactly which s
 ## License
 
 MIT
+```bash
+docker compose up --build
+python scripts/deploy_and_seed.py
+```
+
+🖥️ Frontend (Vite dev server)	http://localhost:5173	✅ Running
+🔌 Backend API / Swagger	http://localhost:8000/docs	✅ Running
+⚙️ x402 Provider	http://localhost:9000	✅ Running
+🔗 Anvil (local blockchain)	http://localhost:8545	✅ Running
+🗄️ PostgreSQL	localhost:5432	✅ Running

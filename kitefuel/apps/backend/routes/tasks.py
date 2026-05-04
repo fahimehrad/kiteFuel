@@ -472,11 +472,11 @@ async def buy_data_confirm(
     _safe_transition(task, "data_purchased")
     prev_state = task.state
 
+    full_report = market_data.get("report") or market_data.get("summary", "")
     result_summary = (
-        f"[x402] {market_data.get('symbol', _X402_SYMBOL)} "
-        f"@ ${market_data.get('price_usd', 0):.2f} "
-        f"({market_data.get('trend', 'unknown')}): "
-        f"{market_data.get('summary', '')}"
+        f"[x402 | {market_data.get('data_provider', 'KiteFuel Market Data')}] "
+        f"{market_data.get('symbol', _X402_SYMBOL)} ({market_data.get('trend', 'unknown')})\n\n"
+        f"{full_report}"
     )
 
     purchase = DataPurchase(
@@ -515,8 +515,8 @@ async def buy_data_confirm(
 
     return _task_response(
         task,
-        f"Data purchased via x402: {market_data.get('symbol', _X402_SYMBOL)} "
-        f"@ ${market_data.get('price_usd', 0):.2f} ({market_data.get('trend', 'unknown')})",
+        f"Research brief purchased via x402: {market_data.get('symbol', _X402_SYMBOL)} "
+        f"({market_data.get('trend', 'unknown')}) — powered by Exa + Nansen + Claude",
     )
 
 

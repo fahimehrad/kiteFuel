@@ -30,6 +30,7 @@ Environment variables:
 """
 from __future__ import annotations
 
+import anthropic
 import base64
 import hashlib
 import json
@@ -106,6 +107,7 @@ def _payment_requirements() -> dict[str, Any]:
                             "price_usd": {"type": "number"},
                             "trend":     {"type": "string"},
                             "summary":   {"type": "string"},
+                            "report":    {"type": "string"},
                         },
                         "required": ["symbol", "price_usd", "trend", "summary"],
                         "type": "object",
@@ -122,47 +124,164 @@ def _payment_requirements() -> dict[str, Any]:
     }
 
 # ---------------------------------------------------------------------------
-# Deterministic market data (same symbol → same data)
+# Real market brief via Exa + Nansen/CoinGecko + Anthropic Claude
 # ---------------------------------------------------------------------------
 
-_TRENDS  = ["bullish", "bearish", "neutral", "consolidating", "volatile"]
-_SUMMARIES = [
-    "{sym} is showing strong momentum backed by institutional accumulation and on-chain activity. "
-    "Analysts expect continued upside as market sentiment remains positive.",
-
-    "{sym} faces selling pressure as macro concerns weigh on risk assets globally. "
-    "Short-term weakness may persist, but long-term fundamentals remain intact.",
-
-    "{sym} is trading sideways in a tight range as the market awaits a catalyst. "
-    "Volume is below average, suggesting indecision among participants.",
-
-    "{sym} has been consolidating after a sharp rally, with bulls defending key support levels. "
-    "A breakout above resistance could trigger the next leg higher.",
-
-    "{sym} is experiencing elevated volatility driven by geopolitical headlines and large liquidations. "
-    "Traders are advised to manage risk carefully in current conditions.",
-]
-
-
-def _market_data(symbol: str) -> dict[str, Any]:
-    """Return deterministic fake market data seeded by symbol."""
+async def _fetch_real_market_brief(symbol: str) -> dict[str, Any]:
+    """
+    Fetch a real research brief for `symbol` using:
+      1. Exa  — recent news and analyst commentary
+      2. Nansen — on-chain whale activity (falls back to CoinGecko if no key)
+      3. Anthropic Claude — synthesizes all data into a structured brief
+    """
     sym = symbol.upper()
-    seed = int(hashlib.md5(sym.encode()).hexdigest(), 16)
-    rng  = random.Random(seed)
+    exa_key       = os.environ.get("EXA_API_KEY", "")
+    nansen_key    = os.environ.get("NANSEN_API_KEY", "")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
-    base_price   = rng.uniform(0.001, 70_000)
-    volume_24h   = rng.uniform(1_000_000, 80_000_000_000)
-    trend        = _TRENDS[seed % len(_TRENDS)]
-    summary_tmpl = _SUMMARIES[seed % len(_SUMMARIES)]
+    exa_results  = ""
+    onchain_data = ""
+
+    # ── Exa: AI-powered web search ───────────────────────────────────────────
+    if exa_key:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    "https://api.exa.ai/search",
+                    headers={"Authorization": f"Bearer {exa_key}", "Content-Type": "application/json"},
+                    json={
+                        "query": f"{sym} cryptocurrency price analysis news 2026",
+                        "num_results": 4,
+                        "use_autoprompt": True,
+                        "type": "neural",
+                        "contents": {"text": {"max_characters": 800}},
+                    },
+                )
+            if resp.is_success:
+                results = resp.json().get("results", [])
+                snippets = [
+                    f"- {r.get('title', '')}: {r.get('text', '')[:300]}"
+                    for r in results
+                ]
+                exa_results = "\n".join(snippets)
+                logger.info("exa_search_ok", symbol=sym, result_count=len(results))
+            else:
+                logger.warning("exa_search_failed", symbol=sym, status=resp.status_code)
+        except Exception as exc:
+            logger.warning("exa_search_error", symbol=sym, error=str(exc))
+
+    # ── Nansen / CoinGecko: on-chain / price data ────────────────────────────
+    if nansen_key:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(
+                    f"https://api.nansen.ai/v1/token/summary",
+                    params={"symbol": sym},
+                    headers={"X-Api-Key": nansen_key},
+                )
+            if resp.is_success:
+                onchain_data = f"Nansen on-chain data: {resp.text[:600]}"
+                logger.info("nansen_ok", symbol=sym)
+            else:
+                logger.warning("nansen_failed", symbol=sym, status=resp.status_code)
+        except Exception as exc:
+            logger.warning("nansen_error", symbol=sym, error=str(exc))
+
+    # Fallback: CoinGecko free API for price data (no key needed)
+    if not onchain_data:
+        try:
+            coin_id = sym.lower()
+            id_map = {"btc": "bitcoin", "eth": "ethereum", "sol": "solana", "avax": "avalanche-2"}
+            coin_id = id_map.get(coin_id, coin_id)
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    f"https://api.coingecko.com/api/v3/coins/{coin_id}",
+                    params={"localization": "false", "tickers": "false", "community_data": "false"},
+                )
+            if resp.is_success:
+                d = resp.json()
+                md = d.get("market_data", {})
+                price = md.get("current_price", {}).get("usd", "N/A")
+                change_24h = md.get("price_change_percentage_24h", "N/A")
+                vol = md.get("total_volume", {}).get("usd", "N/A")
+                desc = d.get("description", {}).get("en", "")[:400]
+                onchain_data = (
+                    f"Price: ${price} | 24h change: {change_24h}% | Volume: ${vol}\n"
+                    f"Description: {desc}"
+                )
+                logger.info("coingecko_ok", symbol=sym, price=price)
+        except Exception as exc:
+            logger.warning("coingecko_error", symbol=sym, error=str(exc))
+            onchain_data = f"Price data unavailable for {sym}"
+
+    # ── Anthropic Claude: synthesize into research brief ────────────────────
+    if not anthropic_key:
+        # Graceful fallback if no key — return structured placeholder
+        return {
+            "symbol": sym,
+            "price_usd": 0,
+            "trend": "unknown",
+            "summary": f"[ANTHROPIC_API_KEY not set] Raw data — News: {exa_results[:200]} | On-chain: {onchain_data[:200]}",
+            "report": f"News:\n{exa_results}\n\nOn-chain:\n{onchain_data}",
+            "data_provider": "KiteFuel Research Service (x402)",
+            "payment_settled": True,
+            "settlement_network": KITE_NETWORK,
+        }
+
+    prompt = f"""You are a professional crypto research analyst. Using the data below, write a concise market brief for {sym}.
+
+MARKET & PRICE DATA:
+{onchain_data}
+
+RECENT NEWS & ANALYSIS:
+{exa_results}
+
+Write the brief in this exact format:
+**{sym} Market Brief**
+
+**Price & Market**
+[2-3 sentences on current price, volume, 24h movement]
+
+**On-Chain Signals**
+[2-3 sentences on whale activity, exchange flows, accumulation/distribution]
+
+**News & Sentiment**
+[2-3 sentences on key news headlines and market sentiment]
+
+**Verdict**
+[1 sentence: bullish / bearish / neutral with one-line reason]
+
+Keep it under 250 words. Be specific, not generic."""
+
+    try:
+        aclient = anthropic.Anthropic(api_key=anthropic_key)
+        message = aclient.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=512,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        report_text = message.content[0].text.strip()
+        logger.info("anthropic_synthesis_ok", symbol=sym, tokens=message.usage.output_tokens)
+    except Exception as exc:
+        logger.warning("anthropic_synthesis_error", symbol=sym, error=str(exc))
+        report_text = f"Research brief for {sym}:\n\nNews:\n{exa_results}\n\nOn-chain:\n{onchain_data}"
+
+    # Extract trend from the verdict line for backwards compat
+    trend = "neutral"
+    report_lower = report_text.lower()
+    if "bullish" in report_lower:
+        trend = "bullish"
+    elif "bearish" in report_lower:
+        trend = "bearish"
 
     return {
-        "symbol":             sym,
-        "price_usd":          round(base_price, 2),
-        "volume_24h":         round(volume_24h, 0),
-        "trend":              trend,
-        "summary":            summary_tmpl.format(sym=sym),
-        "data_provider":      "KiteFuel Market Data (x402)",
-        "payment_settled":    True,
+        "symbol": sym,
+        "price_usd": 0,  # embedded in report text
+        "trend": trend,
+        "summary": report_text[:300],  # short preview
+        "report": report_text,         # full Claude-generated brief
+        "data_provider": "KiteFuel Research Service (Exa + Nansen + Claude)",
+        "payment_settled": True,
         "settlement_network": KITE_NETWORK,
     }
 
@@ -262,7 +381,8 @@ async def market_brief(
 
     # ── Step 6: Return data or 402 ───────────────────────────────────────────
     if facilitator_ok:
-        return JSONResponse(status_code=200, content=_market_data(symbol))
+        data = await _fetch_real_market_brief(symbol)
+        return JSONResponse(status_code=200, content=data)
 
     # Settlement rejected — return 402 with the facilitator's error
     error_msg = (

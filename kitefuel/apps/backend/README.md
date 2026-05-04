@@ -63,3 +63,7 @@ Dockerfile       # Container image definition
 | `ANVIL_RPC_URL`              | Ethereum RPC endpoint (Anvil or testnet)    |
 | `BACKEND_SIGNER_PRIVATE_KEY` | Wallet private key for signing transactions |
 | `CONTRACT_ADDRESS`           | Deployed KiteFuel contract address          |
+
+
+DATABASE_URL=postgresql://postgres:kitefuel@localhost:5432/kitefuel alembic upgrade head
+DATABASE_URL=postgresql://postgres:kitefuel@localhost:5432/kitefuel uvicorn main:app --reload

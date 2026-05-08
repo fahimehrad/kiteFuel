@@ -12,18 +12,18 @@ Client                     x402-provider               Kite Facilitator
   │                              │                            │
   │  GET /api/market-brief       │                            │
   │  (no X-PAYMENT header)       │                            │
-  │ ─────────────────────────► │                            │
+  │ ─────────────────────────►   │                            │
   │  ◄── HTTP 402 + requirements │                            │
   │                              │                            │
   │  [obtain X-PAYMENT token via Kite Passport / MCP]         │
   │                              │                            │
   │  GET /api/market-brief       │                            │
   │  X-PAYMENT: <base64 token>   │                            │
-  │ ─────────────────────────► │                            │
+  │ ─────────────────────────►   │                            │
   │                              │  POST /v2/settle           │
   │                              │ ─────────────────────────► │
   │                              │  ◄── 200 (settled)         │
-  │  ◄── 200 market data        │                            │
+  │  ◄── 200 market data         │                            │
 ```
 
 1. **No payment** → HTTP 402 with `accepts[]` describing how to pay

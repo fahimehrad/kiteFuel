@@ -301,43 +301,52 @@ def run(args: argparse.Namespace) -> None:
     # ── 5. Buy-data — fetch x402 payment requirements ───────────────────────
     print(bold("\n── Step 5: Fetch x402 payment requirements ────────────────────"))
     buy_resp = _api("POST", f"{base_url}/tasks/{task_id}/buy-data", step="buy_data")
+    payment_required = buy_resp.get("payment_required", True)
     requirements = buy_resp.get("requirements", {})
-    print(f"  {green('✔')} payment_required=true")
-    if isinstance(requirements, dict):
-        for k, v in requirements.items():
-            print(f"       {k}: {v}")
+    purchased_symbol = "BTC"
 
-    # ── 6. Buy-data/confirm — x402 token ────────────────────────────────────
-    print(bold("\n── Step 6: Confirm x402 purchase ──────────────────────────────"))
+    if not payment_required:
+        # Demo mode — backend already completed the purchase automatically
+        msg = buy_resp.get("message", "")
+        symbol_match = re.search(r":\s*(\w+)", msg)
+        purchased_symbol = symbol_match.group(1) if symbol_match else "BTC"
+        print(f"  {green('✔')} demo mode — payment skipped, data purchased automatically")
+        print(f"  {green('✔')} state=data_purchased  symbol={purchased_symbol}")
+    else:
+        print(f"  {green('✔')} payment_required=true")
+        if isinstance(requirements, dict):
+            for k, v in requirements.items():
+                print(f"       {k}: {v}")
 
-    payment_token: str = args.payment_token or ""
+        # ── 6. Buy-data/confirm — x402 token ────────────────────────────────
+        print(bold("\n── Step 6: Confirm x402 purchase ──────────────────────────────"))
 
-    if not payment_token:
-        # Interactive pause — only reached when --payment-token is not supplied
-        print()
-        print(yellow("  ⏸  Paste your X-PAYMENT token below and press Enter."))
-        print(yellow("     (Obtain it from Kite Passport / your MCP agent)"))
-        print()
-        try:
-            payment_token = input("  X-PAYMENT token: ").strip()
-        except (EOFError, KeyboardInterrupt):
+        payment_token: str = args.payment_token or ""
+
+        if not payment_token:
             print()
-            _fail("buy_data_confirm", "No payment token provided (stdin closed or interrupted)")
+            print(yellow("  ⏸  Paste your X-PAYMENT token below and press Enter."))
+            print(yellow("     (Obtain it from Kite Passport / your MCP agent)"))
+            print()
+            try:
+                payment_token = input("  X-PAYMENT token: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                _fail("buy_data_confirm", "No payment token provided (stdin closed or interrupted)")
 
-    if not payment_token:
-        _fail("buy_data_confirm", "payment_token must not be empty")
+        if not payment_token:
+            _fail("buy_data_confirm", "payment_token must not be empty")
 
-    confirm_resp = _api(
-        "POST", f"{base_url}/tasks/{task_id}/buy-data/confirm",
-        json={"payment_token": payment_token},
-        step="buy_data_confirm",
-        retries=1,
-    )
-    # Extract symbol from message  "Data purchased via x402: BTC @ $..."
-    msg = confirm_resp.get("message", "")
-    symbol_match = re.search(r"x402:\s*(\w+)", msg)
-    purchased_symbol = symbol_match.group(1) if symbol_match else "BTC"
-    print(f"  {green('✔')} state=data_purchased  symbol={purchased_symbol}")
+        confirm_resp = _api(
+            "POST", f"{base_url}/tasks/{task_id}/buy-data/confirm",
+            json={"payment_token": payment_token},
+            step="buy_data_confirm",
+            retries=1,
+        )
+        msg = confirm_resp.get("message", "")
+        symbol_match = re.search(r"x402:\s*(\w+)", msg)
+        purchased_symbol = symbol_match.group(1) if symbol_match else "BTC"
+        print(f"  {green('✔')} state=data_purchased  symbol={purchased_symbol}")
 
     # ── 7. Generate report ───────────────────────────────────────────────────
     print(bold("\n── Step 7: Generate report ────────────────────────────────────"))

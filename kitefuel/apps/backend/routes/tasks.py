@@ -396,6 +396,39 @@ async def buy_data(task_id: str, db: Session = Depends(get_db)):
     provider_url = requirements.get("provider_url", "") if isinstance(requirements, dict) else ""
     amount_required = requirements.get("amount", str(_X402_AMOUNT)) if isinstance(requirements, dict) else str(_X402_AMOUNT)
 
+    # In demo mode requirements is None — skip payment gate entirely
+    if requirements is None:
+        market_data = await X402Client().complete_purchase(_X402_SYMBOL)
+        _safe_transition(task, "data_purchased")
+        prev_state = task.state
+        full_report = market_data.get("report") or market_data.get("summary", "")
+        result_summary = (
+            f"[x402 | {market_data.get('data_provider', 'KiteFuel Market Data')}] "
+            f"{market_data.get('symbol', _X402_SYMBOL)} ({market_data.get('trend', 'unknown')})\n\n"
+            f"{full_report}"
+        )
+        purchase = DataPurchase(
+            task_id=task_id,
+            provider="KiteFuel Market Data (x402 — Demo Mode)",
+            amount=_X402_AMOUNT,
+            result_summary=result_summary,
+            payment_token="demo-mode",
+            purchased_at=_utcnow(),
+        )
+        db.add(purchase)
+        task.state = "data_purchased"
+        task.updated_at = _utcnow()
+        _add_state_transition(db, task_id, prev_state, "data_purchased",
+                              note=f"x402 demo-mode symbol={_X402_SYMBOL}")
+        db.commit()
+        db.refresh(task)
+        _log_event("x402_demo_purchase_complete", task_id=task_id, symbol=_X402_SYMBOL)
+        return {
+            "payment_required": False,
+            "requirements": None,
+            "message": f"Data purchased (demo mode): {_X402_SYMBOL}",
+        }
+
     _log_event(
         "x402_payment_requirements_sent",
         task_id=task_id,

@@ -56,9 +56,35 @@ class X402Client:
     #: Timeout for all HTTP requests to the x402 provider (seconds)
     TIMEOUT = 30
 
+    # Mock data returned in DEMO_MODE (Pieverse facilitator is broken on testnet)
+    _MOCK_MARKET_DATA: dict[str, Any] = {
+        "symbol": "BTC",
+        "price_usd": 67420.0,
+        "trend": "bullish",
+        "summary": "BTC showing strong momentum above $67K with institutional accumulation. Volume up 23% in 24h. Sentiment bullish.",
+        "report": (
+            "**BTC Market Brief**\n\n"
+            "**Price & Market**\n"
+            "Bitcoin trades at $67,420, up 3.2% in the past 24 hours with volume surging 23% to $31B. "
+            "The move follows institutional inflows and ETF demand.\n\n"
+            "**On-Chain Signals**\n"
+            "Whale wallets added 4,200 BTC in the last 48 hours. Exchange outflows suggest accumulation. "
+            "Long-term holder supply at 12-month high.\n\n"
+            "**News & Sentiment**\n"
+            "Fed signals pause in rate hikes; crypto markets rally. "
+            "BlackRock ETF sees record inflow day. Sentiment index: 72 (Greed).\n\n"
+            "**Verdict**\n"
+            "Bullish — institutional demand and on-chain accumulation support further upside toward $72K."
+        ),
+        "data_provider": "KiteFuel Research Service (x402 — Demo Mode)",
+        "payment_settled": True,
+        "settlement_network": "kite-testnet",
+    }
+
     def __init__(self) -> None:
+        self._demo_mode = os.environ.get("DEMO_MODE", "").lower() in ("1", "true", "yes")
         url = os.environ.get("X402_PROVIDER_URL", "").rstrip("/")
-        if not url:
+        if not url and not self._demo_mode:
             raise ConfigurationError(
                 "X402_PROVIDER_URL environment variable is not set. "
                 "Set it to the base URL of the x402 provider service "
@@ -70,7 +96,10 @@ class X402Client:
     # Public API
     # ------------------------------------------------------------------ #
 
-    async def request_payment_requirements(self, symbol: str) -> dict[str, Any]:
+    async def request_payment_requirements(self, symbol: str) -> dict[str, Any] | None:
+        if self._demo_mode:
+            logger.info("x402_demo_mode_skip_requirements", symbol=symbol)
+            return None
         """
         Call GET /api/market-brief?symbol={symbol} without a payment token.
 
@@ -105,7 +134,12 @@ class X402Client:
             f"Response: {resp.text[:300]}"
         )
 
-    async def complete_purchase(self, symbol: str, payment_token: str) -> dict[str, Any]:
+    async def complete_purchase(self, symbol: str, payment_token: str = "") -> dict[str, Any]:
+        if self._demo_mode:
+            logger.info("x402_demo_mode_mock_purchase", symbol=symbol)
+            data = dict(self._MOCK_MARKET_DATA)
+            data["symbol"] = symbol.upper()
+            return data
         """
         Retry GET /api/market-brief?symbol={symbol} with the real X-PAYMENT token.
 

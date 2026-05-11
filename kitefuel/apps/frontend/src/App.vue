@@ -7,6 +7,7 @@
       <span class="text-xs font-medium bg-purple-700 text-purple-100 px-2 py-0.5 rounded-full">
         Built on Kite
       </span>
+      <span class="text-xs text-gray-500 ml-1 hidden sm:inline">Programmable credit for AI agents — borrow, execute, repay</span>
     </nav>
 
     <!-- Error banner -->

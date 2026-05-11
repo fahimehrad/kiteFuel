@@ -146,3 +146,203 @@ python scripts/deploy_and_seed.py
 ⚙️ x402 Provider	http://localhost:9000	✅ Running
 🔗 Anvil (local blockchain)	http://localhost:8545	✅ Running
 🗄️ PostgreSQL	localhost:5432	✅ Running
+
+  Things you run yourself (Docker):       Things already running on the internet:
+  ─────────────────────────────           ──────────────────────────────────────                                                                                                                                                                                                                                          
+  ✅ Backend (FastAPI)                    ✅ https://facilitator.pieverse.io                                                                                                                                                                                                                                                
+  ✅ x402-provider                        ✅ https://rpc-testnet.gokite.ai (Kite RPC)                                                                                                                                                                                                                                       
+  ✅ Frontend (Vue)                       ✅ https://faucet.gokite.ai (free tokens)                                                                                                                                                                                                                                         
+  ✅ PostgreSQL                           ✅ https://api.coingecko.com (price data)                                                                                                                                                                                                                                       ──
+  ✅ Smart contract (deploy once)    
+
+
+
+ How It All Connects in Your Project
+                                                                                                                                                                                                                                                                                                                          
+  ┌─────────────────────────────────────────────────────────────┐
+  │                    YOUR PROJECT FLOW                        │                                                                                                                                                                                                                                                         
+  │                                                             │
+  │  1. User creates a task in the Vue frontend                 │                                                                                                                                                                                                                                                         
+  │         ↓                                                   │                                                                                                                                                                                                                                                         
+  │  2. Backend (FastAPI) requests credit                       │                                                                                                                                                                                                                                                         
+  │         ↓                                                   │                                                                                                                                                                                                                                                         
+  │  3. Smart contract on Kite testnet locks funds (escrow)     │
+  │         ↓                                                   │                                                                                                                                                                                                                                                         
+  │  4. Backend calls x402-provider to buy market data          │
+  │         ↓                                                   │                                                                                                                                                                                                                                                         
+  │  5. x402-provider says "pay me first" (HTTP 402)            │
+  │         ↓                                                   │                                                                                                                                                                                                                                                         
+  │  6. Kite Passport signs the payment → X-PAYMENT token       │
+  │         ↓                                                   │                                                                                                                                                                                                                                                         
+  │  7. Backend retries with X-PAYMENT token                    │
+  │         ↓                                                   │                                                                                                                                                                                                                                                         
+  │  8. Pieverse facilitator moves Test-USDT on Kite testnet    │                                                                                                                                                                                                                                                         
+  │         ↓                                                   │
+  │  9. x402-provider returns BTC market data + AI report       │                                                                                                                                                                                                                                                         
+  │         ↓                                                   │
+  │  10. Smart contract repays lender, releases remainder       │                                                                                                                                                                                                                                                         
+  └─────────────────────────────────────────────────────────────┘
+                                                                                                                                                                                                                                                                                                                          
+  ---             
+  What You Need To Run It                                                                                                                                                                                                                                                                                                 
+                         
+  ┌──────┬─────────────────────────────────┬────────────────────────────────────────────┐
+  │ Step │              What               │                    How                     │                                                                                                                                                                                                                                 
+  ├──────┼─────────────────────────────────┼────────────────────────────────────────────┤
+  │ 1    │ A wallet on Kite testnet        │ MetaMask + add Kite testnet                │                                                                                                                                                                                                                                 
+  ├──────┼─────────────────────────────────┼────────────────────────────────────────────┤
+  │ 2    │ Testnet KITE tokens (for gas)   │ Free from faucet.gokite.ai                 │                                                                                                                                                                                                                                 
+  ├──────┼─────────────────────────────────┼────────────────────────────────────────────┤                                                                                                                                                                                                                                 
+  │ 3    │ Testnet USDT (for x402 payment) │ Kite Passport gives you test tokens        │                                                                                                                                                                                                                                 
+  ├──────┼─────────────────────────────────┼────────────────────────────────────────────┤                                                                                                                                                                                                                                 
+  │ 4    │ Deploy the smart contract       │ Run forge script (one time)                │
+  ├──────┼─────────────────────────────────┼────────────────────────────────────────────┤                                                                                                                                                                                                                                 
+  │ 5    │ Start services                  │ docker compose up --build                  │
+  ├──────┼─────────────────────────────────┼────────────────────────────────────────────┤                                                                                                                                                                                                                                 
+  │ 6    │ Get X-PAYMENT token             │ Kite Passport (I can do this for you here) │
+  └──────┴─────────────────────────────────┴────────────────────────────────────────────┘                                                                                                                                                                                                                                 
+   
+  The step that's interactive is step 6 — when the deploy script pauses and says "paste your X-PAYMENT token." That's where Kite Passport comes in, and I can help generate that token for you as part of running the demo.                                                                                               
+                  
+  Do you have a wallet already, or should we start from creating one?                                                                                                                                                                                                                                                     
+                  
+  Which Is Better For Your Project?
+                                   
+  ┌────────────────────────────┬────────────────────┬───────────────┐
+  │                            │ Off-chain matching │ On-chain pool │                                                                                                                                                                                                                                                     
+  ├────────────────────────────┼────────────────────┼───────────────┤
+  │ Speed                      │ Fast (ms)          │ Fast (one tx) │                                                                                                                                                                                                                                                     
+  ├────────────────────────────┼────────────────────┼───────────────┤
+  │ Lender needs to be online? │ No                 │ No            │                                                                                                                                                                                                                                                     
+  ├────────────────────────────┼────────────────────┼───────────────┤                                                                                                                                                                                                                                                     
+  │ Human approval per loan?   │ No                 │ No            │                                                                                                                                                                                                                                                     
+  ├────────────────────────────┼────────────────────┼───────────────┤                                                                                                                                                                                                                                                     
+  │ Truly agentic?             │ Yes                │ Yes           │
+  ├────────────────────────────┼────────────────────┼───────────────┤                                                                                                                                                                                                                                                     
+  │ Complexity                 │ Low                │ Higher        │
+  └────────────────────────────┴────────────────────┴───────────────┘                                                                                                                                                                                                                                                     
+                  
+  Both solve your problem. The agent doesn't wait for a human — it finds a pre-existing offer and the money moves automatically.                                                                                                                                                                                          
+   
+  ---                                                                                                                                                                                                                                                                                                                     
+  What Your Demo Does vs What Could Be Real
+                                                                                                                                                                                                                                                                                                                          
+  Current demo (fake):
+    Agent requests credit → backend just makes up a lender → no real money moves from lender                                                                                                                                                                                                                              
+                                                                                                                                                                                                                                                                                                                          
+  Real version (simple fix):                                                                                                                                                                                                                                                                                              
+    Lender signs up once → deposits KITE into your app                                                                                                                                                                                                                                                                    
+    Agent requests credit → contract pulls from lender's deposit → immediate                                                                                                                                                                                                                                              
+   
+    The lender isn't online. They already said yes in advance by depositing.                                                                                                                                                                                                                                              
+                  
+  The key insight is: "approving" in the agentic world doesn't mean clicking a button in real-time. It means depositing money into a contract and setting your rules upfront. After that, everything is automatic.     
+  
+ ---                                                                                                                                                                                                                                                                                                                     
+  This Is Just Normal Lending Risk
+                                                                                                                                                                                                                                                                                                                          
+  Agent borrows, strategy fails, no revenue generated
+  → Lender loses their money                                                                                                                                                                                                                                                                                              
+  → This is the lender's risk in exchange for the fee they charge
+                                                                                                                                                                                                                                                                                                                          
+  Same as a bank lending to a restaurant that goes bankrupt. The bank knew it was possible. That's why they charged interest.                                                                                                                                                                                             
+                                                                                                                                                                                                                                                                                                                          
+  ---                                                                                                                                                                                                                                                                                                                     
+  How Real Systems Manage This Risk
+                                   
+  1. Credit scoring
+  Lenders only lend to agents with a good track record.                                                                                                                                                                                                                                                                   
+  Agent has run 100 strategies → 95 were profitable                                                                                                                                                                                                                                                                       
+  → Lender is willing to lend at low fee                                                                                                                                                                                                                                                                                  
+                                                                                                                                                                                                                                                                                                                          
+  New agent with no history                                                                                                                                                                                                                                                                                               
+  → Lender charges higher fee or refuses                                                                                                                                                                                                                                                                                  
+                                                                                                                                                                                                                                                                                                                          
+  2. Partial collateral                                                                                                                                                                                                                                                                                                   
+  Agent doesn't need 100% collateral (which would defeat the purpose), but puts up something:
+  Agent has 0.005 KITE of its own                                                                                                                                                                                                                                                                                         
+  → puts it in escrow alongside lender's 0.01 KITE
+  → if strategy fails, lender gets the 0.005 first                                                                                                                                                                                                                                                                        
+  → lender's max loss is cut in half              
+                                                                                                                                                                                                                                                                                                                          
+  3. Loan size limits
+  Lender caps how much they lend per agent or per task:                                                                                                                                                                                                                                                                   
+  New agent → max loan 0.01 KITE                                                                                                                                                                                                                                                                                          
+  Trusted agent with track record → max loan 10 KITE                                                                                                                                                                                                                                                                      
+                                                                                                                                                                                                                                                                                                                          
+  4. Insurance pools                                                                                                                                                                                                                                                                                                      
+  A separate pool of capital that covers lender losses in exchange for a small premium — like DeFi insurance (Nexus Mutual).                                                                                                                                                                                              
+                                                                                                                                                                                                                                                                                                                          
+  ---             
+  This Risk Is Actually The Point Of Your Project                                                                                                                                                                                                                                                                         
+                                                                                                                                                                                                                                                                                                                          
+  Without KiteFuel:
+    Agent has no capital → can't do anything → stuck                                                                                                                                                                                                                                                                      
+                                                                                                                                                                                                                                                                                                                          
+  With KiteFuel:
+    Lender takes calculated risk → agent can operate                                                                                                                                                                                                                                                                      
+    If agent succeeds → both win                                                                                                                                                                                                                                                                                          
+    If agent fails → lender loses (knew the risk, charged fee for it)                                                                                                                                                                                                                                                     
+                                                                                                                                                                                                                                                                                                                          
+  This is venture capital logic applied to AI agents at micro scale. VCs know most startups fail. They still invest because the winners cover all the losses.                                                                                                                                                             
+                                                                                                                                                                                                                                                                                                                          
+  ---                                                                                                                                                                                                                                                                                                                     
+  So Your Project Makes Complete Sense When Framed As:
+                                                                                                                                                                                                                                                                                                                          
+  ▎ "A credit market where lenders bet on AI agents, earning fees when agents succeed and absorbing losses when they fail — with the smart contract guaranteeing that IF revenue exists, lenders are always paid first."
+                                                                                                                                                                                                                                                                                                                          
+  The lender risk is a feature, not a bug. It's what makes the market work.           
+  
+
+
+
+ ######
+The Biggest Problems Right Now                                                                                                                                                                                                                                                                                          
+                                                                                                                                                                                                                                                                                                                          
+  1. The demo breaks at step 5 — it pops up a modal asking you to manually paste an X-PAYMENT token. A judge watching this demo will see it freeze and not know what to do. This kills the demo.                                                                                                                          
+                                                                                                                                                                                                                                                                                                                          
+  2. The generated report is never shown — the AI report is stored in the database but the UI never displays it. The most impressive output of the whole system is invisible.                                                                                                                                             
+                                                                                                                                                                                                                                                                                                                          
+  3. The narrative is weak — "user pays after seeing report" doesn't make sense economically (as we discussed). Judges who think about it will have the same question you had.                                                                                                                                            
+                  
+  ---                                                                                                                                                                                                                                                                                                                     
+  What To Fix, In Priority Order
+                                                                                                                                                                                                                                                                                                                          
+  Priority 1 — Make It Actually Run (Infrastructure)
+                                                                                                                                                                                                                                                                                                                          
+  Before anything else, you need wallets and testnet tokens. Nothing matters until this works.                                                                                                                                                                                                                            
+                                                                                                                                                                                                                                                                                                                          
+  Priority 2 — Automate The X-PAYMENT Token (Kills Demo If Broken)                                                                                                                                                                                                                                                        
+                  
+  Right now the frontend pauses and shows a modal waiting for you to paste a token. For a demo this is fatal. The backend should get the X-PAYMENT token automatically via Kite Passport — no human paste needed.                                                                                                         
+                  
+  Priority 3 — Show The Report In The UI                                                                                                                                                                                                                                                                                  
+                  
+  The Claude-generated market brief should be displayed beautifully after step 6. Right now judges never see the actual output of the agent.                                                                                                                                                                              
+   
+  Priority 4 — Reframe The Narrative                                                                                                                                                                                                                                                                                      
+                  
+  Change "user pays" to "agent earns automatically." One line change in the demo script + one sentence on the UI makes the concept make sense.                                                                                                                                                                            
+                  
+  Priority 5 — Show Lender Economics Visually                                                                                                                                                                                                                                                                             
+                  
+  Add a simple panel showing lender wallet balance before → after. Makes the credit concept tangible for judges.                                                                                                                                                                                                          
+   
+  ---                                                                                                                                                                                                                                                                                                                     
+  Which of these do you want to work on first?
+                                                                                                                                                                                                                                                                                                                          
+  The order I'd recommend: infrastructure → automate X-PAYMENT → show report → reframe narrative.
+                                                                                                                                                                                                                                                                                                                          
+  The first two are blockers — the demo literally doesn't work without them. The last two are what impresses judges.  
+  
+
+                                                                                                                                                                                                                                                                                                                          
+  So the full sequence is:     
+docker compose down && docker compose up --build 
+
+  First time:    docker compose up --build                                                                                                                                                                                                                                                                                
+                python scripts/deploy_and_seed.py         ← deploys + seeds
+                                                                                                                                                                                                                                                                                                                          
+  Every time after:
+                 docker compose up                                                                                                                                                                                                                                                                                        
+                 python scripts/deploy_and_seed.py --skip-deploy   ← just seeds

@@ -23,6 +23,31 @@
       </div>
       <div v-else class="text-sm text-green-400 font-medium">✅ Task complete</div>
 
+      <!-- Market Report -->
+      <div v-if="marketReport" class="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-3">
+        <!-- Header row -->
+        <div class="flex items-center justify-between gap-2">
+          <h3 class="text-sm font-semibold text-gray-100">Market Report</h3>
+          <span class="text-[10px] font-medium bg-green-900/60 text-green-300 border border-green-700/50 px-2 py-0.5 rounded-full uppercase tracking-wider">AI Generated</span>
+        </div>
+
+        <!-- Provider + timestamp -->
+        <p class="text-xs text-gray-500">
+          {{ marketReport.provider }}
+          <span v-if="marketReport.purchasedAt"> · {{ marketReport.purchasedAt }}</span>
+        </p>
+
+        <!-- Report body -->
+        <div class="text-sm text-gray-300 leading-relaxed space-y-1 border-t border-gray-800 pt-3">
+          <p
+            v-for="(line, i) in marketReport.lines"
+            :key="i"
+            :class="line.isBold ? 'font-semibold text-gray-100 mt-2 first:mt-0' : 'text-gray-400'"
+            v-html="line.html"
+          />
+        </div>
+      </div>
+
       <!-- State timeline -->
       <ol class="relative border-l border-gray-700 space-y-0 ml-3">
         <li
@@ -67,6 +92,54 @@
 
       <!-- Demo Runner -->
       <DemoPanel @running-change="isDemoRunning = $event" />
+
+      <!-- Credit & Lender card -->
+      <div v-if="lenderPanel" class="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-3">
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Credit &amp; Lender</h3>
+
+        <!-- Key-value rows -->
+        <dl class="space-y-1.5 text-xs">
+          <!-- Lender address -->
+          <div class="flex items-center justify-between gap-2">
+            <dt class="text-gray-500 flex-shrink-0">Lender</dt>
+            <dd class="text-gray-300 font-mono">
+              <a
+                :href="`https://testnet.kitescan.ai/address/${lenderPanel.lenderAddress}`"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+              >{{ lenderPanel.lenderShort }} ↗</a>
+            </dd>
+          </div>
+
+          <!-- Borrowed -->
+          <div class="flex items-center justify-between gap-2">
+            <dt class="text-gray-500">Borrowed</dt>
+            <dd class="text-gray-300">{{ lenderPanel.creditAmount }} KITE</dd>
+          </div>
+
+          <!-- Repay -->
+          <div class="flex items-center justify-between gap-2">
+            <dt class="text-gray-500">Repay</dt>
+            <dd class="text-gray-300">{{ lenderPanel.repayAmount }} KITE</dd>
+          </div>
+
+          <!-- Fee -->
+          <div class="flex items-center justify-between gap-2">
+            <dt class="text-gray-500">Fee</dt>
+            <dd class="text-gray-300">
+              {{ lenderPanel.fee }} KITE
+              <span class="text-gray-600">({{ lenderPanel.feePct }}%)</span>
+            </dd>
+          </div>
+        </dl>
+
+        <!-- Post-settle repayment outcome -->
+        <div v-if="lenderPanel.repayment" class="border-t border-gray-800 pt-3 space-y-1 text-xs">
+          <p class="text-green-400">✅ Lender repaid {{ lenderPanel.repayment.lenderPaid }} KITE</p>
+          <p class="text-green-400">✅ Remainder released {{ lenderPanel.repayment.remainderReleased }} KITE</p>
+        </div>
+      </div>
 
       <!-- Agent Identity card -->
       <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-2">
@@ -281,6 +354,158 @@ const agentMaxSpend = computed<string>(() => {
 })
 
 // ---------------------------------------------------------------------------
+// Credit & Lender panel
+// ---------------------------------------------------------------------------
+
+// States where the credit offer exists (credit_requested or later)
+const CREDIT_VISIBLE_STATES = new Set([
+  'credit_requested',
+  'credit_approved',
+  'funds_locked',
+  'data_purchased',
+  'result_generated',
+  'user_paid',
+  'lender_repaid',
+  'task_closed',
+])
+
+interface LenderRepayment {
+  lenderPaid: number
+  remainderReleased: number
+}
+
+interface LenderPanel {
+  lenderAddress: string
+  lenderShort: string
+  creditAmount: number
+  repayAmount: number
+  fee: number
+  feePct: string
+  repayment: LenderRepayment | null
+}
+
+function shortenAddress(addr: string): string {
+  if (!addr || addr.length < 12) return addr
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`
+}
+
+const lenderPanel = computed<LenderPanel | null>(() => {
+  const d = detail.value
+  if (!d) return null
+
+  const currentState = task.value?.state ?? ''
+  if (!CREDIT_VISIBLE_STATES.has(currentState)) return null
+
+  const offer = d.credit_offers?.[0]
+  if (!offer) return null
+
+  const credit = Number(offer.credit_amount)
+  const repay  = Number(offer.repay_amount)
+  const fee    = Math.round((repay - credit) * 1e8) / 1e8  // avoid float drift
+  const feePct = credit > 0 ? ((fee / credit) * 100).toFixed(0) : '0'
+
+  const rep = d.repayment_records?.[0]
+  const repayment: LenderRepayment | null = rep
+    ? { lenderPaid: rep.lender_paid, remainderReleased: rep.remainder_released }
+    : null
+
+  return {
+    lenderAddress: offer.lender_address,
+    lenderShort:   shortenAddress(offer.lender_address),
+    creditAmount:  credit,
+    repayAmount:   repay,
+    fee,
+    feePct,
+    repayment,
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Market Report
+// ---------------------------------------------------------------------------
+
+// States at which the report should be visible
+const REPORT_VISIBLE_STATES = new Set([
+  'data_purchased',
+  'result_generated',
+  'user_paid',
+  'lender_repaid',
+  'task_closed',
+])
+
+interface ReportLine {
+  html: string
+  isBold: boolean
+}
+
+interface MarketReport {
+  provider: string
+  purchasedAt: string | null
+  lines: ReportLine[]
+}
+
+/** Escape any HTML special characters so v-html is safe for plain text */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+/**
+ * Convert a single line of text with **bold** markers into HTML.
+ * e.g.  "**Price & Market**"  →  "<strong>Price &amp; Market</strong>"
+ *       "Bitcoin trades at..."  →  "Bitcoin trades at..."
+ */
+function renderLine(raw: string): ReportLine {
+  // A line that is entirely a **heading** (common in the reports)
+  const fullBold = raw.match(/^\*\*(.+)\*\*$/)
+  if (fullBold) {
+    return { html: escapeHtml(fullBold[1]), isBold: true }
+  }
+  // Inline **bold** segments mixed with normal text
+  const html = escapeHtml(raw).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  return { html, isBold: false }
+}
+
+function formatPurchasedAt(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return null
+  const now = Date.now()
+  const diffMs = now - d.getTime()
+  const diffSec = Math.floor(diffMs / 1000)
+  if (diffSec < 60)  return `${diffSec}s ago`
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60)  return `${diffMin} min ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24)   return `${diffHr}h ago`
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+const marketReport = computed<MarketReport | null>(() => {
+  const d = detail.value
+  if (!d) return null
+
+  const currentState = task.value?.state ?? ''
+  if (!REPORT_VISIBLE_STATES.has(currentState)) return null
+
+  const purchase = d.data_purchases?.[0]
+  if (!purchase?.result_summary) return null
+
+  const lines: ReportLine[] = purchase.result_summary
+    .split('\n')
+    .map((raw: string) => renderLine(raw))
+
+  return {
+    provider: purchase.provider ?? 'Unknown Provider',
+    purchasedAt: formatPurchasedAt(purchase.purchased_at),
+    lines,
+  }
+})
+
+// ---------------------------------------------------------------------------
 // State timeline
 // ---------------------------------------------------------------------------
 
@@ -302,8 +527,8 @@ const STATE_LABELS: Record<string, string> = {
   credit_approved:  'Credit Approved',
   funds_locked:     'Escrow Funded',
   data_purchased:   'Data Purchased',
-  result_generated: 'Report Generated',
-  user_paid:        'User Paid',
+  result_generated: 'Report Ready',
+  user_paid:        'Revenue Captured',
   lender_repaid:    'Lender Repaid',
   task_closed:      'Task Closed',
 }

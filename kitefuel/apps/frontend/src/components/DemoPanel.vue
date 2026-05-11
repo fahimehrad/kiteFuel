@@ -167,8 +167,8 @@ const STEPS = [
   { label: 'Fund Escrow' },
   { label: 'Buy Data (x402)' },
   { label: 'Generate Report' },
-  { label: 'User Payment' },
-  { label: 'Settle & Repay' },
+  { label: 'Agent Earns Revenue' },
+  { label: 'Settle & Repay Lender' },
 ] as const
 
 // Step indices (matching STEPS array)

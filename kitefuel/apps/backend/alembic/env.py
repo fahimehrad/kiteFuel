@@ -16,6 +16,9 @@ config = context.config
 
 # Override sqlalchemy.url from env var if set
 database_url = os.getenv("DATABASE_URL", "sqlite:///./kitefuel.db")
+# SQLAlchemy 2.0 dropped support for the legacy postgres:// scheme
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
 config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging

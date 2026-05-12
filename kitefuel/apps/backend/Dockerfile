@@ -19,13 +19,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+RUN chmod +x entrypoint.sh
+
 # Runtime port
 EXPOSE 8000
 
 # Health check (Railway / load balancers call /health before routing traffic)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+    CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
 
-# Run migrations then start the server.
-# Using shell form so && works; Railway injects DATABASE_URL via env.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2"]
+CMD ["./entrypoint.sh"]

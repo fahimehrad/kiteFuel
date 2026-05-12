@@ -3,6 +3,9 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 import os
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./kitefuel.db")
+# SQLAlchemy 2.0 dropped support for the legacy postgres:// scheme
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 engine = create_engine(
     DATABASE_URL,

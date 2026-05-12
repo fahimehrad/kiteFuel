@@ -8,10 +8,9 @@ builder        = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# Migrations must succeed before the server starts.
-startCommand            = "sh -c 'alembic downgrade base && alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 2'"
+startCommand            = "./entrypoint.sh"
 healthcheckPath         = "/health"
-healthcheckTimeout      = 30
+healthcheckTimeout      = 60
 restartPolicyType       = "ON_FAILURE"
 restartPolicyMaxRetries = 3
 

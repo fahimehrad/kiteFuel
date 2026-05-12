@@ -42,6 +42,13 @@
       </section>
 
     </main>
+
+    <!-- Agent Chat section -->
+    <div class="border-t border-gray-800 bg-gray-950 px-6 py-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Talk to the Agent</h2>
+      <AgentChat />
+    </div>
+
   </div>
 </template>
 
@@ -49,6 +56,7 @@
 import { useTaskStore } from './stores/taskStore'
 import TaskList from './components/TaskList.vue'
 import TaskDetail from './components/TaskDetail.vue'
+import AgentChat from './components/AgentChat.vue'
 
 const store = useTaskStore()
 </script>

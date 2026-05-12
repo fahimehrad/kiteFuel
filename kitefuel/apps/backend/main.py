@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from database import Base, engine
 import models  # noqa: F401 — registers all ORM classes with Base.metadata
+from routes.agent import router as agent_router
 from routes.attestations import router as attestations_router
 from routes.tasks import router as tasks_router
 
@@ -32,6 +33,7 @@ app.add_middleware(
 
 app.include_router(tasks_router)
 app.include_router(attestations_router)
+app.include_router(agent_router)
 
 
 @app.get("/health", tags=["health"])

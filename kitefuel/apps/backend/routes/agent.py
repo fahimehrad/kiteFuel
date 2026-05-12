@@ -398,7 +398,7 @@ async def _agent_stream(message: str, db: Session) -> AsyncGenerator[str, None]:
         while True:
             response = await asyncio.to_thread(
                 client.messages.create,
-                model="claude-sonnet-4-5",
+                model="claude-sonnet-4-6",
                 max_tokens=4096,
                 system=SYSTEM_PROMPT,
                 tools=TOOLS,  # type: ignore[arg-type]

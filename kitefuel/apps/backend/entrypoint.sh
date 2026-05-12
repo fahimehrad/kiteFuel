@@ -29,6 +29,9 @@ print("[startup] WARNING: database still not ready after 60s, proceeding anyway"
 PYEOF
 
 echo "[startup] Running database migrations..."
+# stamp base first so alembic always re-applies from scratch on a fresh DB
+# (handles stale alembic_version rows from previous failed deploys)
+alembic stamp base
 alembic upgrade head
 
 echo "[startup] Migrations complete. Starting server..."

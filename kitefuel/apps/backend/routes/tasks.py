@@ -26,10 +26,9 @@ from models import (
     RepaymentRecord,
     StateTransition,
 )
-from schemas import ConfirmPurchaseRequest
 from services.state_machine import transition, next_action, InvalidTransition
 from services.contract_service import ContractService, ContractError
-from services.x402_client import X402Client, X402Error, X402PaymentRejected, ConfigurationError
+from services.kite_payment import buy_market_data, KitePaymentError
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -339,17 +338,16 @@ _X402_SYMBOL = "BTC"                # symbol used for all demo x402 market-data 
 _X402_AMOUNT = 5.0                  # display amount in payment token units (Test USDT, 18 dec)
 
 
-@router.post("/{task_id}/buy-data", summary="Initiate x402 data purchase — returns payment requirements")
+@router.post("/{task_id}/buy-data", summary="Purchase market data via Kite Passport (Nansen x402)")
 async def buy_data(task_id: str, db: Session = Depends(get_db)):
     """
-    Step 1 of the two-step x402 buy-data flow.
+    Purchase real-time token analytics via Kite Passport (Nansen).
 
-    Calls the x402 provider to retrieve payment requirements (HTTP 402).
-    Does NOT advance task state — the client must complete the purchase via
-    POST /tasks/{id}/buy-data/confirm with a real X-PAYMENT token.
+    Calls kpass agent:session execute to perform the x402 payment against Nansen,
+    then advances task state to 'data_purchased' and persists a DataPurchase record.
 
     Returns:
-        {payment_required: true, requirements: {...}, message: "..."}
+        {payment_required: false, requirements: null, message: "..."}
     """
     task = _get_task_or_404(task_id, db)
     if task.state != "funds_locked":
@@ -358,199 +356,48 @@ async def buy_data(task_id: str, db: Session = Depends(get_db)):
             detail={"error": "Task must be in 'funds_locked' state to buy data", "current_state": task.state},
         )
 
-    # Ask the x402 provider what it needs — backend does NOT sign or generate a token
     try:
-        client = X402Client()
-        requirements = await client.request_payment_requirements(_X402_SYMBOL)
-    except ConfigurationError as exc:
-        _log_warning(
-            "x402_configuration_error",
-            task_id=task_id,
-            error=str(exc),
-        )
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "x402 provider not configured", "detail": str(exc)},
-        )
-    except X402Error as exc:
-        _log_warning(
-            "x402_provider_error",
-            task_id=task_id,
-            error=str(exc),
-        )
+        market_data = await buy_market_data(_X402_SYMBOL)
+    except KitePaymentError as exc:
         raise HTTPException(
             status_code=502,
-            detail={"error": "x402 provider returned unexpected response", "detail": str(exc)},
+            detail={"error": "Kite payment failed", "detail": str(exc)},
         )
     except Exception as exc:
-        _log_warning(
-            "x402_reach_error",
-            task_id=task_id,
-            error=str(exc),
-        )
         raise HTTPException(
             status_code=502,
-            detail={"error": "Failed to reach x402 provider", "detail": str(exc)},
+            detail={"error": "Market data purchase failed", "detail": str(exc)},
         )
 
-    provider_url = requirements.get("provider_url", "") if isinstance(requirements, dict) else ""
-    amount_required = requirements.get("amount", str(_X402_AMOUNT)) if isinstance(requirements, dict) else str(_X402_AMOUNT)
-
-    # In demo mode requirements is None — skip payment gate entirely
-    if requirements is None:
-        market_data = await X402Client().complete_purchase(_X402_SYMBOL)
-        _safe_transition(task, "data_purchased")
-        prev_state = task.state
-        full_report = market_data.get("report") or market_data.get("summary", "")
-        result_summary = (
-            f"[x402 | {market_data.get('data_provider', 'KiteFuel Market Data')}] "
-            f"{market_data.get('symbol', _X402_SYMBOL)} ({market_data.get('trend', 'unknown')})\n\n"
-            f"{full_report}"
-        )
-        purchase = DataPurchase(
-            task_id=task_id,
-            provider="KiteFuel Market Data (x402 — Demo Mode)",
-            amount=_X402_AMOUNT,
-            result_summary=result_summary,
-            payment_token="demo-mode",
-            purchased_at=_utcnow(),
-        )
-        db.add(purchase)
-        task.state = "data_purchased"
-        task.updated_at = _utcnow()
-        _add_state_transition(db, task_id, prev_state, "data_purchased",
-                              note=f"x402 demo-mode symbol={_X402_SYMBOL}")
-        db.commit()
-        db.refresh(task)
-        _log_event("x402_demo_purchase_complete", task_id=task_id, symbol=_X402_SYMBOL)
-        return {
-            "payment_required": False,
-            "requirements": None,
-            "message": f"Data purchased (demo mode): {_X402_SYMBOL}",
-        }
-
-    _log_event(
-        "x402_payment_requirements_sent",
-        task_id=task_id,
-        provider_url=provider_url,
-        amount_required=str(amount_required),
-    )
-
-    return {
-        "payment_required": True,
-        "requirements": requirements,
-        "message": "Provide X-PAYMENT token to complete purchase",
-    }
-
-
-@router.post("/{task_id}/buy-data/confirm", summary="Complete x402 data purchase with payment token")
-async def buy_data_confirm(
-    task_id: str,
-    body: ConfirmPurchaseRequest,
-    db: Session = Depends(get_db),
-):
-    """
-    Step 2 of the two-step x402 buy-data flow.
-
-    Accepts a real X-PAYMENT token obtained by the frontend / agent via
-    Kite Passport / MCP. Forwards it to the x402 provider; on success,
-    advances task state to 'data_purchased' and persists a DataPurchase record.
-
-    The backend NEVER generates or signs this token.
-
-    Request body:
-        { "payment_token": "<base64 X-PAYMENT string>" }
-    """
-    task = _get_task_or_404(task_id, db)
-    if task.state != "funds_locked":
-        raise HTTPException(
-            status_code=409,
-            detail={"error": "Task must be in 'funds_locked' state to confirm purchase", "current_state": task.state},
-        )
-
-    if not body.payment_token or not body.payment_token.strip():
-        raise HTTPException(status_code=400, detail="payment_token is required and must not be empty")
-
-    # Forward token to x402 provider — backend does NOT modify or sign the token
-    try:
-        client = X402Client()
-        market_data = await client.complete_purchase(_X402_SYMBOL, body.payment_token.strip())
-    except ConfigurationError as exc:
-        _log_warning("x402_confirm_configuration_error", task_id=task_id, error=str(exc))
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "x402 provider not configured", "detail": str(exc)},
-        )
-    except X402PaymentRejected as exc:
-        # Facilitator rejected the token — do NOT change task state
-        _log_warning("x402_payment_rejected", task_id=task_id, error=str(exc))
-        raise HTTPException(
-            status_code=402,
-            detail={"error": "Payment rejected by x402 facilitator", "detail": str(exc)},
-        )
-    except X402Error as exc:
-        _log_warning("x402_confirm_provider_error", task_id=task_id, error=str(exc))
-        raise HTTPException(
-            status_code=502,
-            detail={"error": "x402 provider returned unexpected response", "detail": str(exc)},
-        )
-    except Exception as exc:
-        _log_warning("x402_confirm_reach_error", task_id=task_id, error=str(exc))
-        raise HTTPException(
-            status_code=502,
-            detail={"error": "Failed to reach x402 provider", "detail": str(exc)},
-        )
-
-    # External call succeeded — now advance task state and persist
     _safe_transition(task, "data_purchased")
     prev_state = task.state
-
     full_report = market_data.get("report") or market_data.get("summary", "")
     result_summary = (
-        f"[x402 | {market_data.get('data_provider', 'KiteFuel Market Data')}] "
+        f"[x402 | {market_data.get('data_provider', 'Nansen via Kite Passport')}] "
         f"{market_data.get('symbol', _X402_SYMBOL)} ({market_data.get('trend', 'unknown')})\n\n"
         f"{full_report}"
     )
-
     purchase = DataPurchase(
         task_id=task_id,
-        provider="KiteFuel Market Data (x402)",
+        provider=market_data.get("data_provider", "Nansen (Kite Passport x402)"),
         amount=_X402_AMOUNT,
         result_summary=result_summary,
-        payment_token=body.payment_token.strip(),
+        payment_token="kite-passport-x402",
         purchased_at=_utcnow(),
     )
     db.add(purchase)
     task.state = "data_purchased"
     task.updated_at = _utcnow()
-    _add_state_transition(
-        db, task_id, prev_state, "data_purchased",
-        note=f"x402 symbol={_X402_SYMBOL} network={market_data.get('settlement_network', 'kite-testnet')}",
-    )
-    try:
-        db.commit()
-        db.refresh(task)
-    except Exception as exc:
-        db.rollback()
-        _log_warning("x402_confirm_db_error", task_id=task_id, error=str(exc))
-        raise HTTPException(status_code=500, detail=f"DB error: {exc}")
-
-    token = body.payment_token.strip()
-    payment_token_prefix = token[:20] if len(token) >= 20 else token
-
-    _log_event(
-        "x402_purchase_confirmed",
-        task_id=task_id,
-        state="data_purchased",
-        symbol=market_data.get("symbol", _X402_SYMBOL),
-        payment_token_prefix=f"{payment_token_prefix}...(first 20 chars)",
-    )
-
-    return _task_response(
-        task,
-        f"Research brief purchased via x402: {market_data.get('symbol', _X402_SYMBOL)} "
-        f"({market_data.get('trend', 'unknown')}) — powered by Exa + Nansen + Claude",
-    )
+    _add_state_transition(db, task_id, prev_state, "data_purchased",
+                          note=f"nansen x402 symbol={_X402_SYMBOL}")
+    db.commit()
+    db.refresh(task)
+    _log_event("nansen_purchase_complete", task_id=task_id, symbol=_X402_SYMBOL)
+    return {
+        "payment_required": False,
+        "requirements": None,
+        "message": f"Market data purchased via Nansen (Kite Passport x402)",
+    }
 
 
 @router.post("/{task_id}/generate-report", summary="Generate the result report")

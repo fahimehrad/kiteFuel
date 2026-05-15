@@ -28,6 +28,14 @@ for attempt in range(20):
 print("[startup] WARNING: database still not ready after 60s, proceeding anyway")
 PYEOF
 
+# ── Kite Passport setup ───────────────────────────────────────────────────────
+if [ -n "$KPASS_CONFIG_JSON" ]; then
+    mkdir -p .kpass
+    echo "$KPASS_CONFIG_JSON"  > .kpass/config.json
+    echo "$KPASS_AGENT_JSON"   > .kpass/agent.json
+    echo "[startup] Kite Passport config written"
+fi
+
 echo "[startup] Running database migrations..."
 # stamp base first so alembic always re-applies from scratch on a fresh DB
 # (handles stale alembic_version rows from previous failed deploys)

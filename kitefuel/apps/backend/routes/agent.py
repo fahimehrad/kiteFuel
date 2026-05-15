@@ -3,7 +3,7 @@ KiteFuel Agentic Chat — POST /agent/chat
 
 Streams Server-Sent Events as Claude autonomously:
   1. Calls borrow_credit()     — creates task + escrow on-chain
-  2. Calls get_market_data()   — x402 purchase via X402Client (DEMO_MODE)
+  2. Calls get_market_data()   — x402 purchase via Kite Passport (Nansen)
   3. Calls repay_loan()        — generate-report + user-pay + settle on-chain
 
 Each SSE line: data: <JSON>\n\n
@@ -40,7 +40,12 @@ from models import (
     Task,
 )
 from services.contract_service import ContractError, ContractService
-from services.x402_client import X402Client
+from services.kite_payment import (
+    buy_market_data,
+    create_spending_session,
+    wait_for_session_approval,
+    KitePaymentError,
+)
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 logger = structlog.get_logger(__name__)
@@ -253,25 +258,26 @@ async def tool_borrow_credit(db: Session) -> dict:
 
 
 async def tool_get_market_data(symbol: str, task_id: str | None, db: Session) -> dict:
-    """Purchase market data via X402Client (DEMO_MODE returns mock data)."""
+    """Purchase market data via Kite Passport (Nansen) — real x402 payment."""
     try:
-        market_data = await X402Client().complete_purchase(symbol.upper())
+        market_data = await buy_market_data(symbol.upper())
+    except KitePaymentError as exc:
+        return {"error": f"Kite payment failed: {exc}"}
     except Exception as exc:
-        return {"error": f"x402 purchase failed: {exc}"}
+        return {"error": f"Market data purchase failed: {exc}"}
 
     if task_id:
         try:
             await asyncio.to_thread(_db_mark_data_purchased, db, task_id, market_data)
         except Exception as exc:
             logger.warning("agent_data_purchase_db_error", task_id=task_id, error=str(exc))
-            # Don't fail — market data was fetched successfully
 
     return {
-        "symbol": market_data.get("symbol"),
-        "price_usd": market_data.get("price_usd"),
-        "trend": market_data.get("trend"),
-        "summary": market_data.get("summary"),
-        "report": market_data.get("report", ""),
+        "symbol":        market_data.get("symbol"),
+        "price_usd":     market_data.get("price_usd"),
+        "trend":         market_data.get("trend"),
+        "summary":       market_data.get("summary"),
+        "report":        market_data.get("report", ""),
         "data_provider": market_data.get("data_provider"),
     }
 
@@ -336,9 +342,9 @@ TOOLS: list[dict] = [
     {
         "name": "get_market_data",
         "description": (
-            "Buy a paid market intelligence brief for the given crypto symbol (e.g. BTC, ETH, SOL) "
-            "using x402 protocol. Costs credit from your active loan. Returns price, trend, and a "
-            "research report."
+            "Buy real-time on-chain token analytics for the given crypto symbol (e.g. BTC, ETH, SOL) "
+            "using Kite Passport x402 payment (Nansen). Costs credit from your active loan. "
+            "Returns price, trend, on-chain signals, and a research report."
         ),
         "input_schema": {
             "type": "object",
@@ -366,14 +372,15 @@ TOOLS: list[dict] = [
 
 SYSTEM_PROMPT = """\
 You are an autonomous AI agent powered by KiteFuel — a programmable credit \
-protocol on Kite Chain. You can borrow credit to pay for market intelligence \
-APIs (x402 protocol), then repay the lender from the value you generate.
+protocol on Kite Chain. You borrow credit to pay for market intelligence APIs \
+via Kite Passport (x402), then repay the lender from the value you generate.
 
 Rules:
-- If you need to call paid APIs, ALWAYS call borrow_credit first.
-- After buying data, analyze it and form a recommendation.
-- ALWAYS call repay_loan at the end if you borrowed.
-- If the user asks something that doesn't need paid data, just answer directly.
+- ALWAYS call borrow_credit first. It will return a session_approval_url.
+- After borrow_credit, present the approval URL to the user and tell them \
+to approve the spending session so you can buy market data.
+- After they approve, call get_market_data — it will detect the approval automatically.
+- ALWAYS call repay_loan at the end.
 - Be concise and specific in your final answer.\
 """
 
@@ -391,8 +398,9 @@ async def _agent_stream(message: str, db: Session) -> AsyncGenerator[str, None]:
     client = anthropic.Anthropic(api_key=api_key)
     messages: list[dict] = [{"role": "user", "content": message}]
 
-    # Track the current task_id across tool calls
-    current_task_id: str | None = None
+    # Track state across tool calls
+    current_task_id:            str | None = None
+    current_session_request_id: str | None = None
 
     try:
         while True:
@@ -440,10 +448,40 @@ async def _agent_stream(message: str, db: Session) -> AsyncGenerator[str, None]:
                     result = await tool_borrow_credit(db)
                     if "task_id" in result:
                         current_task_id = result["task_id"]
+                        # Create a KitePassport spending session — borrower must approve it
+                        try:
+                            session_info = await create_spending_session()
+                            current_session_request_id         = session_info["request_id"]
+                            result["session_approval_url"]     = session_info["approval_url"]
+                            result["session_request_id"]       = session_info["request_id"]
+                            result["message"] = (
+                                f"Credit borrowed and escrow funded. "
+                                f"Please approve the agent's spending session to continue: "
+                                f"{session_info['approval_url']}"
+                            )
+                        except KitePaymentError as exc:
+                            result["session_warning"] = f"Session creation failed: {exc}"
 
                 elif name == "get_market_data":
                     symbol = inputs.get("symbol", _X402_SYMBOL)
-                    result = await tool_get_market_data(symbol, current_task_id, db)
+                    # Wait for borrower to approve the spending session (up to 5 min)
+                    if current_session_request_id:
+                        approved = await wait_for_session_approval(
+                            current_session_request_id, timeout_seconds=300
+                        )
+                        if not approved:
+                            result = {
+                                "error": (
+                                    "KitePassport session was not approved. "
+                                    "Please approve the spending session first."
+                                )
+                            }
+                        else:
+                            result = await tool_get_market_data(symbol, current_task_id, db)
+                    else:
+                        result = {
+                            "error": "No spending session found. Please call borrow_credit first."
+                        }
 
                 elif name == "repay_loan":
                     tid = inputs.get("task_id") or current_task_id

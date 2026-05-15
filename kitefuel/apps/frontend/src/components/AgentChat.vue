@@ -20,6 +20,31 @@
       </div>
     </div>
 
+    <!-- Approval banner — shown when the agent needs the borrower to approve a spending session -->
+    <div v-if="approvalUrl" class="mx-4 mt-3 flex items-start gap-3 rounded-lg border border-amber-600/60 bg-amber-950/40 px-4 py-3">
+      <span class="text-amber-400 text-lg leading-none mt-0.5">⚡</span>
+      <div class="flex-1 min-w-0">
+        <p class="text-xs font-semibold text-amber-300 mb-1">Spending session approval required</p>
+        <p class="text-xs text-amber-200/70 mb-2">
+          The agent needs your permission to spend USDC for Nansen market data.
+          Click below to approve via Kite Passport.
+        </p>
+        <a
+          :href="approvalUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md bg-amber-500 hover:bg-amber-400 text-gray-900 transition"
+        >
+          ⚡ Approve Spending Session
+        </a>
+      </div>
+      <button
+        @click="approvalUrl = null"
+        class="text-amber-600 hover:text-amber-400 text-xs leading-none mt-0.5 flex-shrink-0"
+        title="Dismiss"
+      >✕</button>
+    </div>
+
     <!-- Message area -->
     <div
       ref="messageArea"
@@ -181,10 +206,11 @@ const SUGGESTIONS = [
 // State
 // ---------------------------------------------------------------------------
 
-const messages   = ref<ChatMessage[]>([])
-const inputText  = ref('')
-const loading    = ref(false)
+const messages    = ref<ChatMessage[]>([])
+const inputText   = ref('')
+const loading     = ref(false)
 const messageArea = ref<HTMLElement | null>(null)
+const approvalUrl = ref<string | null>(null)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -286,10 +312,15 @@ async function submit() {
             input: event.input as Record<string, unknown>,
           })
         } else if (type === 'tool_result') {
+          const resultPayload = event.result as Record<string, unknown>
+          // If borrow_credit returned a spending session approval URL, surface it
+          if (event.name === 'borrow_credit' && resultPayload?.session_approval_url) {
+            approvalUrl.value = resultPayload.session_approval_url as string
+          }
           pushMessage({
             type: 'tool_result',
             name: event.name as string,
-            result: event.result as Record<string, unknown>,
+            result: resultPayload,
           })
         } else if (type === 'error') {
           pushMessage({ type: 'error', content: event.content as string })

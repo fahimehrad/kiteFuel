@@ -16,6 +16,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install kpass CLI
+RUN curl -fsSL https://raw.githubusercontent.com/kite-network/kpass/main/install.sh | sh \
+    || true
+
 # Copy application code
 COPY . .
 

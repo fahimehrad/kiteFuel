@@ -76,3 +76,5 @@ kitefuel/apps/contracts/broadcast/
 # -----------------------------------------------------------------------
 kitefuel/apps/backend/alembic/versions/*.py
 !kitefuel/apps/backend/alembic/versions/.gitkeep
+
+.kite-passport/
